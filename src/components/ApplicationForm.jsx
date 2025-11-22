@@ -150,7 +150,7 @@ const ApplicationForm = ({ onAdd }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Deadline</label>
                 <input
-                    type="date"
+                    type="datetime-local"
                     value={formData.deadline}
                     onChange={e => setFormData({ ...formData, deadline: e.target.value })}
                 />

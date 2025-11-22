@@ -3,8 +3,13 @@ import './styles/App.css'
 import ApplicationCard from './components/ApplicationCard'
 import ApplicationForm from './components/ApplicationForm'
 import TitleBar from './components/TitleBar'
+import CalendarView from './components/CalendarView'
+import ApplicationDetailModal from './components/ApplicationDetailModal'
+import ErrorBoundary from './components/ErrorBoundary';
 
 import Papa from 'papaparse';
+
+import { ThemeProvider } from './context/ThemeContext';
 
 function App() {
   const [applications, setApplications] = useState(() => {
@@ -15,6 +20,25 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [countryFilter, setCountryFilter] = useState('All');
+  const [view, setView] = useState('list'); // 'list' or 'calendar'
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [editingAppId, setEditingAppId] = useState(null);
+
+  // Map applications to calendar events
+  const calendarEvents = applications
+    .filter(app => app.deadline)
+    .map(app => {
+      const hasTime = app.deadline && app.deadline.includes('T');
+      return {
+        id: app.id,
+        title: `${app.university} - ${app.program}`,
+        start: new Date(app.deadline),
+        end: new Date(app.deadline),
+        allDay: !hasTime,
+        type: 'deadline',
+        resource: app
+      };
+    });
 
   useEffect(() => {
     localStorage.setItem('phd-applications', JSON.stringify(applications));
@@ -109,7 +133,7 @@ function App() {
   }, {});
 
   return (
-    <>
+    <ThemeProvider>
       <TitleBar />
       <div className="app-container">
         <div className="header">
@@ -129,96 +153,141 @@ function App() {
               />
             </label>
           </div>
-        </div>
 
-        <div style={{
-          display: 'flex',
-          gap: '1rem',
-          marginBottom: '2rem',
-          flexWrap: 'wrap',
-          background: 'var(--bg-card)',
-          padding: '1rem',
-          borderRadius: '1rem',
-          border: 'var(--glass-border)',
-          backdropFilter: 'var(--backdrop-blur)'
-        }}>
-          <div style={{ flex: 1, minWidth: '200px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.5rem' }}>
-              Total Applications: {applications.length}
-            </span>
-            <div style={{ display: 'flex', gap: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              <span>Submitted: <strong style={{ color: 'var(--text-primary)' }}>{stats['Submitted'] || 0}</strong></span>
-              <span>Accepted: <strong style={{ color: 'var(--accent-success)' }}>{stats['Accepted'] || 0}</strong></span>
-              <span>Rejected: <strong style={{ color: 'var(--accent-danger)' }}>{stats['Rejected'] || 0}</strong></span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '250px' }}>
-            <input
-              type="text"
-              placeholder="Search university or program..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ flex: 1 }}
-            />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{ width: '150px' }}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '1rem' }}>
+            <button
+              onClick={() => setView('list')}
+              className="btn-action"
+              style={{
+                background: view === 'list' ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+                color: view === 'list' ? '#fff' : 'var(--text-secondary)'
+              }}
             >
-              <option value="All">All Statuses</option>
-              <option value="Not Started">Not Started</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Submitted">Submitted</option>
-              <option value="Interview">Interview</option>
-              <option value="Accepted">Accepted</option>
-              <option value="Rejected">Rejected</option>
-            </select>
-            <select
-              value={countryFilter}
-              onChange={(e) => setCountryFilter(e.target.value)}
-              style={{ width: '150px' }}
+              📋 List View
+            </button>
+            <button
+              onClick={() => setView('calendar')}
+              className="btn-action"
+              style={{
+                background: view === 'calendar' ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+                color: view === 'calendar' ? '#fff' : 'var(--text-secondary)'
+              }}
             >
-              {uniqueCountries.map(country => (
-                <option key={country} value={country}>
-                  {country === 'All' ? 'All Countries' : country}
-                </option>
-              ))}
-            </select>
+              📅 Calendar
+            </button>
           </div>
         </div>
 
-        <ApplicationForm onAdd={addApplication} />
-
-        {filteredApplications.length === 0 ? (
-          <div className="empty-state">
-            {applications.length === 0 ? (
-              <>
-                <h2>No applications yet</h2>
-                <p>Start by adding your dream universities above.</p>
-              </>
-            ) : (
-              <>
-                <h2>No matches found</h2>
-                <p>Try adjusting your search or filters.</p>
-              </>
-            )}
-          </div>
+        {view === 'calendar' ? (
+          <CalendarView
+            events={calendarEvents}
+            onSelectEvent={setSelectedEvent}
+          />
         ) : (
-          <div className="grid-container">
-            {filteredApplications.map(app => (
-              <ApplicationCard
-                key={app.id}
-                app={app}
-                onDelete={deleteApplication}
-                onStatusChange={updateStatus}
-                onEdit={editApplication}
-              />
-            ))}
-          </div>
+          <>
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              marginBottom: '2rem',
+              flexWrap: 'wrap',
+              background: 'var(--bg-card)',
+              padding: '1rem',
+              borderRadius: '1rem',
+              border: 'var(--glass-border)',
+              backdropFilter: 'var(--backdrop-blur)'
+            }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.5rem' }}>
+                  Total Applications: {applications.length}
+                </span>
+                <div style={{ display: 'flex', gap: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  <span>Submitted: <strong style={{ color: 'var(--text-primary)' }}>{stats['Submitted'] || 0}</strong></span>
+                  <span>Accepted: <strong style={{ color: 'var(--accent-success)' }}>{stats['Accepted'] || 0}</strong></span>
+                  <span>Rejected: <strong style={{ color: 'var(--accent-danger)' }}>{stats['Rejected'] || 0}</strong></span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '250px' }}>
+                <input
+                  type="text"
+                  placeholder="Search university or program..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{ width: '150px' }}
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="Not Started">Not Started</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Submitted">Submitted</option>
+                  <option value="Interview">Interview</option>
+                  <option value="Accepted">Accepted</option>
+                  <option value="Rejected">Rejected</option>
+                </select>
+                <select
+                  value={countryFilter}
+                  onChange={(e) => setCountryFilter(e.target.value)}
+                  style={{ width: '150px' }}
+                >
+                  {uniqueCountries.map(country => (
+                    <option key={country} value={country}>
+                      {country === 'All' ? 'All Countries' : country}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <ApplicationForm onAdd={addApplication} />
+
+            {filteredApplications.length === 0 ? (
+              <div className="empty-state">
+                {applications.length === 0 ? (
+                  <>
+                    <h2>No applications yet</h2>
+                    <p>Start by adding your dream universities above.</p>
+                  </>
+                ) : (
+                  <>
+                    <h2>No matches found</h2>
+                    <p>Try adjusting your search or filters.</p>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="grid-container">
+                {filteredApplications.map(app => (
+                  <ApplicationCard
+                    key={app.id}
+                    app={app}
+                    onDelete={deleteApplication}
+                    onStatusChange={updateStatus}
+                    onEdit={editApplication}
+                    startEditing={app.id === editingAppId}
+                    onEditEnd={() => setEditingAppId(null)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {selectedEvent && (
+          <ApplicationDetailModal
+            event={selectedEvent}
+            onClose={() => setSelectedEvent(null)}
+            onEdit={(app) => {
+              setEditingAppId(app.id);
+              setView('list');
+            }}
+          />
         )}
       </div>
-    </>
+    </ThemeProvider>
   )
 }
 

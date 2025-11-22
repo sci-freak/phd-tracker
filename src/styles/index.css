@@ -1,23 +1,47 @@
+/* Default (Dark) Theme */
 :root {
-  /* Premium Color Palette - Deep Space & Neon Accents */
   --bg-primary: #0f172a;
   --bg-secondary: #1e293b;
   --bg-card: rgba(30, 41, 59, 0.7);
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --accent-primary: #38bdf8; /* Sky Blue */
-  --accent-secondary: #818cf8; /* Indigo */
+  --accent-primary: #38bdf8;
+  --accent-secondary: #818cf8;
   --accent-success: #4ade80;
   --accent-danger: #f87171;
   --accent-warning: #fbbf24;
-  
-  /* Glassmorphism */
   --glass-border: 1px solid rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   --backdrop-blur: blur(12px);
-
-  /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Light Theme */
+[data-theme='light'] {
+  --bg-primary: #f0f9ff;
+  --bg-secondary: #ffffff;
+  --bg-card: rgba(255, 255, 255, 0.8);
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --accent-primary: #0ea5e9;
+  --accent-secondary: #6366f1;
+  --accent-success: #22c55e;
+  --accent-danger: #ef4444;
+  --accent-warning: #f59e0b;
+  --glass-border: 1px solid rgba(0, 0, 0, 0.1);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Midnight Theme */
+[data-theme='midnight'] {
+  --bg-primary: #000000;
+  --bg-secondary: #111111;
+  --bg-card: rgba(20, 20, 20, 0.8);
+  --text-primary: #e2e8f0;
+  --text-secondary: #64748b;
+  --accent-primary: #60a5fa;
+  --accent-secondary: #a78bfa;
+  --glass-border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 body {

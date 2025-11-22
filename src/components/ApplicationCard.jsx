@@ -11,19 +11,32 @@ const statusColors = {
     'Rejected': 'var(--accent-danger)',
 };
 
-const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit }) => {
+const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, onEditEnd }) => {
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedApp, setEditedApp] = React.useState(app);
     const [editKey, setEditKey] = React.useState(Date.now());
 
+    React.useEffect(() => {
+        if (startEditing) {
+            setIsEditing(true);
+            // Scroll into view
+            const element = document.getElementById(`app-card-${app.id}`);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    }, [startEditing, app.id]);
+
     const handleSave = () => {
         onEdit(editedApp);
         setIsEditing(false);
+        if (onEditEnd) onEditEnd();
     };
 
     const handleCancel = () => {
         setEditedApp(app);
         setIsEditing(false);
+        if (onEditEnd) onEditEnd();
     };
 
     const handleEdit = () => {
@@ -98,7 +111,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit }) => {
                     placeholder="Country"
                 />
                 <input
-                    type="date"
+                    type="datetime-local"
                     value={editedApp.deadline}
                     onChange={(e) => setEditedApp({ ...editedApp, deadline: e.target.value })}
                 />
@@ -144,6 +157,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit }) => {
             transition: 'transform 0.2s',
             position: 'relative'
         }}
+            id={`app-card-${app.id}`}
             onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
             onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
         >

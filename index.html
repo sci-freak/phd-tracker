@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>phd-tracker</title>
+    <script>
+      window.onerror = function(message, source, lineno, colno, error) {
+        alert('Global Error: ' + message + '\nSource: ' + source + '\nLine: ' + lineno);
+      };
+      window.onunhandledrejection = function(event) {
+        alert('Unhandled Rejection: ' + event.reason);
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>

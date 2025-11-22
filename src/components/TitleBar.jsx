@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ThemeSwitcher from './ThemeSwitcher';
 
 const TitleBar = () => {
     const [isVisible, setIsVisible] = useState(false);
@@ -41,9 +42,9 @@ const TitleBar = () => {
             left: 0,
             right: 0,
             height: '40px',
-            background: 'rgba(15, 23, 42, 0.95)',
+            background: 'var(--bg-card)',
             backdropFilter: 'blur(12px)',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            borderBottom: 'var(--glass-border)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -64,92 +65,92 @@ const TitleBar = () => {
                 🎓 PhD Application Tracker
             </div>
 
-            <div style={{
-                display: 'flex',
-                gap: '0.5rem',
-                WebkitAppRegion: 'no-drag'
-            }}>
-                <button
-                    onClick={handleMinimize}
-                    style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-secondary)',
-                        fontSize: '1.2rem',
-                        width: '40px',
-                        height: '30px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.color = 'var(--text-primary)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                    }}
-                    title="Minimize"
-                >
-                    −
-                </button>
-                <button
-                    onClick={handleMaximize}
-                    style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-secondary)',
-                        fontSize: '1rem',
-                        width: '40px',
-                        height: '30px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.color = 'var(--text-primary)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                    }}
-                    title="Maximize"
-                >
-                    ☐
-                </button>
-                <button
-                    onClick={handleClose}
-                    style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-secondary)',
-                        fontSize: '1.5rem',
-                        width: '40px',
-                        height: '30px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'var(--accent-danger)';
-                        e.currentTarget.style.color = 'white';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                    }}
-                    title="Close"
-                >
-                    ×
-                </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', WebkitAppRegion: 'no-drag' }}>
+                <ThemeSwitcher />
+
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                        onClick={handleMinimize}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-secondary)',
+                            fontSize: '1.2rem',
+                            width: '40px',
+                            height: '30px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                            e.currentTarget.style.color = 'var(--text-primary)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = 'var(--text-secondary)';
+                        }}
+                        title="Minimize"
+                    >
+                        −
+                    </button>
+                    <button
+                        onClick={handleMaximize}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-secondary)',
+                            fontSize: '1rem',
+                            width: '40px',
+                            height: '30px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                            e.currentTarget.style.color = 'var(--text-primary)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = 'var(--text-secondary)';
+                        }}
+                        title="Maximize"
+                    >
+                        ☐
+                    </button>
+                    <button
+                        onClick={handleClose}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-secondary)',
+                            fontSize: '1.5rem',
+                            width: '40px',
+                            height: '30px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'var(--accent-danger)';
+                            e.currentTarget.style.color = 'white';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = 'var(--text-secondary)';
+                        }}
+                        title="Close"
+                    >
+                        ×
+                    </button>
+                </div>
             </div>
         </div>
     );
