@@ -1,16 +1,56 @@
-# React + Vite
+# PhD Application Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A desktop application to track your PhD applications, deadlines, and requirements.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Track Applications**: Keep a list of universities, programs, and statuses.
+- **Calendar View**: Visualize deadlines on a calendar.
+- **Google Calendar Integration**: Sync deadlines to your Google Calendar.
+- **Rich Text Notes**: Keep detailed notes for each application.
+- **Theme Support**: Light, Dark, and Midnight themes.
+- **Data Export/Import**: Backup your data to JSON or CSV.
 
-## React Compiler
+## Installation (For Users)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Simply download and run the `PhD Tracker.exe` file. No setup required.
 
-## Expanding the ESLint configuration
+## Developer Setup (Building from Source)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+If you want to modify the code and build the app yourself, follow these steps:
+
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/sci-freak/phd-tracker.git
+    cd phd-tracker
+    ```
+
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
+3.  **Configure Google API Keys**:
+    > **IMPORTANT**: The Google API keys have been removed from the source code for security. You must add your own keys for the Calendar integration to work.
+
+    - Open `src/config.js` and replace the placeholders:
+      ```javascript
+      export const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID';
+      export const GOOGLE_CLIENT_SECRET = 'YOUR_CLIENT_SECRET';
+      ```
+    - Open `electron/main.js` and replace the placeholders:
+      ```javascript
+      const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID';
+      const GOOGLE_CLIENT_SECRET = 'YOUR_CLIENT_SECRET';
+      ```
+
+4.  **Run in Development Mode**:
+    ```bash
+    npm run electron:dev
+    ```
+
+5.  **Build for Production**:
+    ```bash
+    npm run build
+    npm run package
+    ```
