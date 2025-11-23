@@ -18,7 +18,7 @@ const ApplicationForm = ({ onAdd }) => {
     const [requirements, setRequirements] = useState([]);
     const [newRequirement, setNewRequirement] = useState('');
 
-    const requirementOptions = ['TOEFL', 'IELTS', 'GRE', 'GMAT', 'Transcripts', 'LORs', 'SOP', 'CV'];
+    const requirementOptions = ['TOEFL', 'IELTS', 'GRE', 'GMAT', 'Transcripts', 'SOP', 'CV', 'Personal Statement', '1 LOR', '2 LORs', '3 LORs', '4 LORs'];
 
     const addRequirement = () => {
         if (newRequirement && !requirements.includes(newRequirement)) {
@@ -141,6 +141,7 @@ const ApplicationForm = ({ onAdd }) => {
                 <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Country</label>
                 <input
                     type="text"
+                    list="country-list"
                     placeholder="e.g. USA"
                     value={formData.country}
                     onChange={e => setFormData({ ...formData, country: e.target.value })}

@@ -1,6 +1,7 @@
 import React from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
 import WysiwygEditor from './WysiwygEditor';
+import { getCountryCode } from '../utils/countryFlags';
 
 const statusColors = {
     'Not Started': 'var(--text-secondary)',
@@ -9,12 +10,16 @@ const statusColors = {
     'Interview': 'var(--accent-warning)',
     'Accepted': 'var(--accent-success)',
     'Rejected': 'var(--accent-danger)',
+    'Deadline Missed': 'var(--accent-danger)',
 };
 
 const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, onEditEnd }) => {
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedApp, setEditedApp] = React.useState(app);
     const [editKey, setEditKey] = React.useState(Date.now());
+    const [newRequirement, setNewRequirement] = React.useState('');
+
+    const requirementOptions = ['TOEFL', 'IELTS', 'GRE', 'GMAT', 'Transcripts', 'SOP', 'CV', 'Personal Statement', '1 LOR', '2 LORs', '3 LORs', '4 LORs'];
 
     React.useEffect(() => {
         if (startEditing) {
@@ -43,6 +48,23 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
         setEditedApp(app);
         setEditKey(Date.now()); // Generate new key to force remount
         setIsEditing(true);
+    };
+
+    const addRequirement = () => {
+        if (newRequirement && (!editedApp.requirements || !editedApp.requirements.includes(newRequirement))) {
+            setEditedApp({
+                ...editedApp,
+                requirements: [...(editedApp.requirements || []), newRequirement]
+            });
+            setNewRequirement('');
+        }
+    };
+
+    const removeRequirement = (req) => {
+        setEditedApp({
+            ...editedApp,
+            requirements: (editedApp.requirements || []).filter(r => r !== req)
+        });
     };
 
     const formatDate = (dateString) => {
@@ -109,6 +131,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     value={editedApp.country || ''}
                     onChange={(e) => setEditedApp({ ...editedApp, country: e.target.value })}
                     placeholder="Country"
+                    list="country-list"
                 />
                 <input
                     type="datetime-local"
@@ -128,6 +151,68 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     placeholder="QS Ranking"
                     min="1"
                 />
+
+                {/* Requirements Editing */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Requirements</label>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <select
+                            value={newRequirement}
+                            onChange={(e) => setNewRequirement(e.target.value)}
+                            style={{ flex: 1, minWidth: '150px' }}
+                        >
+                            <option value="">Select requirement...</option>
+                            {requirementOptions.map(opt => (
+                                <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            onClick={addRequirement}
+                            className="btn-action"
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                        >
+                            + Add
+                        </button>
+                    </div>
+                    {editedApp.requirements && editedApp.requirements.length > 0 && (
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                            {editedApp.requirements.map(req => (
+                                <span
+                                    key={req}
+                                    style={{
+                                        background: 'var(--accent-primary)',
+                                        color: 'white',
+                                        padding: '0.25rem 0.75rem',
+                                        borderRadius: '1rem',
+                                        fontSize: '0.85rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem'
+                                    }}
+                                >
+                                    {req}
+                                    <button
+                                        type="button"
+                                        onClick={() => removeRequirement(req)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '1rem',
+                                            padding: 0,
+                                            lineHeight: 1
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 <WysiwygEditor
                     key={editKey}
                     value={editedApp.notes}
@@ -142,6 +227,8 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
             </div>
         );
     }
+
+    const countryCode = getCountryCode(app.country);
 
     return (
         <div style={{
@@ -166,7 +253,20 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     <h3 style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>{app.university}</h3>
                     <p style={{ color: 'var(--accent-primary)', fontSize: '0.9rem' }}>{app.program}</p>
                     {app.department && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>📚 {app.department}</p>}
-                    {app.country && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>🌍 {app.country}</p>}
+                    {app.country && (
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {countryCode ? (
+                                <img
+                                    src={`https://flagcdn.com/w20/${countryCode}.png`}
+                                    srcSet={`https://flagcdn.com/w40/${countryCode}.png 2x`}
+                                    width="20"
+                                    alt={app.country}
+                                    style={{ borderRadius: '2px' }}
+                                />
+                            ) : '🌍'}
+                            {app.country}
+                        </p>
+                    )}
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button

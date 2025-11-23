@@ -11,6 +11,8 @@ import Papa from 'papaparse';
 
 import { ThemeProvider } from './context/ThemeContext';
 
+import { countries } from './constants/countries';
+
 function App() {
   const [applications, setApplications] = useState(() => {
     const saved = localStorage.getItem('phd-applications');
@@ -136,6 +138,11 @@ function App() {
     <ThemeProvider>
       <TitleBar />
       <div className="app-container">
+        <datalist id="country-list">
+          {countries.map(country => (
+            <option key={country} value={country} />
+          ))}
+        </datalist>
         <div className="header">
           <h1>PhD Application Tracker</h1>
           <p>Manage your journey to the doctorate.</p>
@@ -227,6 +234,7 @@ function App() {
                   <option value="Interview">Interview</option>
                   <option value="Accepted">Accepted</option>
                   <option value="Rejected">Rejected</option>
+                  <option value="Deadline Missed">Deadline Missed</option>
                 </select>
                 <select
                   value={countryFilter}

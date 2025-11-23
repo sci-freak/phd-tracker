@@ -30,6 +30,41 @@
   margin-top: 2rem;
 }
 
+input[type="datetime-local"] {
+  font-family: inherit;
+  color-scheme: light dark;
+  /* Allows browser to adapt calendar popup */
+}
+
+/* Force dark calendar in dark modes if browser supports it */
+[data-theme='dark'] input[type="datetime-local"],
+[data-theme='midnight'] input[type="datetime-local"] {
+  color-scheme: dark;
+}
+
+[data-theme='light'] input[type="datetime-local"] {
+  color-scheme: light;
+}
+
+/* Custom scrollbar for webkit */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 4px;
+  opacity: 0.5;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-primary);
+}
+
 .empty-state {
   text-align: center;
   color: var(--text-secondary);
