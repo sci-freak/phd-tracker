@@ -19,7 +19,7 @@ const GoogleConnect = ({ onEventsLoaded }) => {
                 // Try to refresh the token
                 setLoading(true);
                 try {
-                    const tokens = await window.electronAPI.refreshGoogle(refreshToken);
+                    const tokens = await window.electronAPI.refreshGoogle({ refreshToken, clientId, clientSecret });
                     if (tokens && tokens.access_token) {
                         setAccessToken(tokens.access_token);
                         setIsSignedIn(true);

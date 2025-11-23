@@ -6,5 +6,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     close: () => ipcRenderer.send('window-close'),
     loginGoogle: (credentials) => ipcRenderer.invoke('auth:start', credentials),
     logoutGoogle: () => ipcRenderer.invoke('auth:logout'),
-    refreshGoogle: (refreshToken) => ipcRenderer.invoke('auth:refresh', refreshToken)
+    refreshGoogle: (data) => ipcRenderer.invoke('auth:refresh', data)
 });

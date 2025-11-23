@@ -110,12 +110,15 @@ ipcMain.handle('auth:start', async (event, credentials = {}) => {
     });
 });
 
-ipcMain.handle('auth:refresh', async (event, refreshToken) => {
+ipcMain.handle('auth:refresh', async (event, { refreshToken, clientId, clientSecret }) => {
+    const cId = clientId || GOOGLE_CLIENT_ID;
+    const cSecret = clientSecret || GOOGLE_CLIENT_SECRET;
+
     if (!oauth2Client) {
-        // Re-initialize client if needed (using defaults)
+        // Re-initialize client if needed
         oauth2Client = new OAuth2Client(
-            GOOGLE_CLIENT_ID,
-            GOOGLE_CLIENT_SECRET,
+            cId,
+            cSecret,
             'http://127.0.0.1:3000/oauth2callback'
         );
     }
