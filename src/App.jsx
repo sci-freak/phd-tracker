@@ -12,6 +12,11 @@ import Papa from 'papaparse';
 import { ThemeProvider } from './context/ThemeContext';
 
 import { countries } from './constants/countries';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
+import SortableItem from './components/SortableItem';
+import SearchModal from './components/SearchModal';
+import SettingsModal from './components/SettingsModal';
 
 function App() {
   const [applications, setApplications] = useState(() => {
@@ -25,6 +30,18 @@ function App() {
   const [view, setView] = useState('list'); // 'list' or 'calendar'
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [editingAppId, setEditingAppId] = useState(null);
+  const [sortOption, setSortOption] = useState('manual');
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [shortcut, setShortcut] = useState(() => localStorage.getItem('searchShortcut') || 'Ctrl+K');
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Map applications to calendar events
   const calendarEvents = applications
@@ -45,6 +62,71 @@ function App() {
   useEffect(() => {
     localStorage.setItem('phd-applications', JSON.stringify(applications));
   }, [applications]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const keys = shortcut.split('+');
+      const mainKey = keys[keys.length - 1].toLowerCase();
+      const hasCtrl = keys.includes('Ctrl');
+      const hasCmd = keys.includes('Cmd');
+      const hasAlt = keys.includes('Alt');
+      const hasShift = keys.includes('Shift');
+
+      const eventKey = e.key.toLowerCase();
+      const eventCtrl = e.ctrlKey;
+      const eventMeta = e.metaKey; // Cmd
+      const eventAlt = e.altKey;
+      const eventShift = e.shiftKey;
+
+      // Check modifiers
+      const modifiersMatch =
+        (hasCtrl === eventCtrl) &&
+        (hasCmd === eventMeta) &&
+        (hasAlt === eventAlt) &&
+        (hasShift === eventShift);
+
+      if (modifiersMatch && eventKey === mainKey) {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [shortcut]);
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+
+    if (active.id !== over.id) {
+      setApplications((items) => {
+        let currentItems = [...items];
+
+        // If we are in an automated sort mode, we need to "freeze" the current sorted order
+        // into a manual order before applying the drag.
+        if (sortOption !== 'manual') {
+          currentItems.sort((a, b) => {
+            if (sortOption === 'deadline') {
+              const dateA = a.deadline ? new Date(a.deadline) : new Date('9999-12-31');
+              const dateB = b.deadline ? new Date(b.deadline) : new Date('9999-12-31');
+              return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+            }
+            if (sortOption === 'status') {
+              return sortDirection === 'asc'
+                ? a.status.localeCompare(b.status)
+                : b.status.localeCompare(a.status);
+            }
+            return 0;
+          });
+        }
+
+        const oldIndex = currentItems.findIndex((item) => item.id === active.id);
+        const newIndex = currentItems.findIndex((item) => item.id === over.id);
+        return arrayMove(currentItems, oldIndex, newIndex);
+      });
+      setSortOption('manual');
+    }
+  };
 
   const addApplication = (app) => {
     setApplications([app, ...applications]);
@@ -125,6 +207,18 @@ function App() {
     const matchesStatus = statusFilter === 'All' || app.status === statusFilter;
     const matchesCountry = countryFilter === 'All' || app.country === countryFilter;
     return matchesSearch && matchesStatus && matchesCountry;
+  }).sort((a, b) => {
+    if (sortOption === 'deadline') {
+      const dateA = a.deadline ? new Date(a.deadline) : new Date('9999-12-31');
+      const dateB = b.deadline ? new Date(b.deadline) : new Date('9999-12-31');
+      return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+    }
+    if (sortOption === 'status') {
+      return sortDirection === 'asc'
+        ? a.status.localeCompare(b.status)
+        : b.status.localeCompare(a.status);
+    }
+    return 0;
   });
 
   const uniqueCountries = ['All', ...new Set(applications.map(app => app.country).filter(Boolean))];
@@ -147,6 +241,9 @@ function App() {
           <h1>PhD Application Tracker</h1>
           <p>Manage your journey to the doctorate.</p>
           <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+            <button onClick={() => setIsSettingsOpen(true)} className="btn-action">
+              <span>⚙️</span> Settings
+            </button>
             <button onClick={exportData} className="btn-action">
               <span>💾</span> Export Backup
             </button>
@@ -214,7 +311,7 @@ function App() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '250px' }}>
+              <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '250px', flexWrap: 'wrap' }}>
                 <input
                   type="text"
                   placeholder="Search university or program..."
@@ -247,6 +344,25 @@ function App() {
                     </option>
                   ))}
                 </select>
+                <select
+                  value={sortOption}
+                  onChange={(e) => setSortOption(e.target.value)}
+                  style={{ width: '170px' }}
+                >
+                  <option value="manual">Manual Sort</option>
+                  <option value="deadline">Sort by Deadline</option>
+                  <option value="status">Sort by Status</option>
+                </select>
+                {sortOption !== 'manual' && (
+                  <button
+                    onClick={() => setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    className="btn-action"
+                    style={{ padding: '0.5rem', minWidth: '40px', justifyContent: 'center' }}
+                    title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+                  >
+                    {sortDirection === 'asc' ? '⬆️' : '⬇️'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -268,17 +384,29 @@ function App() {
               </div>
             ) : (
               <div className="grid-container">
-                {filteredApplications.map(app => (
-                  <ApplicationCard
-                    key={app.id}
-                    app={app}
-                    onDelete={deleteApplication}
-                    onStatusChange={updateStatus}
-                    onEdit={editApplication}
-                    startEditing={app.id === editingAppId}
-                    onEditEnd={() => setEditingAppId(null)}
-                  />
-                ))}
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={filteredApplications.map(app => app.id)}
+                    strategy={rectSortingStrategy}
+                  >
+                    {filteredApplications.map(app => (
+                      <SortableItem key={app.id} id={app.id}>
+                        <ApplicationCard
+                          app={app}
+                          onDelete={deleteApplication}
+                          onStatusChange={updateStatus}
+                          onEdit={editApplication}
+                          startEditing={app.id === editingAppId}
+                          onEditEnd={() => setEditingAppId(null)}
+                        />
+                      </SortableItem>
+                    ))}
+                  </SortableContext>
+                </DndContext>
               </div>
             )}
           </>
@@ -295,6 +423,29 @@ function App() {
           />
         )}
       </div>
+      <SearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        applications={applications}
+        onSelect={(app) => {
+          setEditingAppId(app.id);
+          setView('list');
+          // Optional: scroll to item
+          setTimeout(() => {
+            const el = document.getElementById(`app-card-${app.id}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 100);
+        }}
+      />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        currentShortcut={shortcut}
+        onSaveShortcut={(newShortcut) => {
+          setShortcut(newShortcut);
+          localStorage.setItem('searchShortcut', newShortcut);
+        }}
+      />
     </ThemeProvider>
   )
 }

@@ -26,3 +26,4 @@ dist-ssr
 # Build output
 release
 release-builds
+.env

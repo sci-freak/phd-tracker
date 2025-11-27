@@ -89,18 +89,24 @@ const WysiwygEditor = ({ value, onChange, placeholder, rows = 3 }) => {
             i.outerHTML = `*${i.textContent}*`;
         });
         // Replace line breaks and divs with newlines
+        // Replace line breaks and divs with newlines
         let markdown = tempDiv.innerHTML
-            .replace(/<br\s*\/?>(\r?\n)?/gi, '\n')
-            .replace(/<div>/gi, '\n')
-            .replace(/<\/div>/gi, '')
-            .replace(/<p>/gi, '')
-            .replace(/<\/p>/gi, '\n')
-            .replace(/<[^>]+>/g, '')
+            .replace(/<br\s*\/?>/gi, '\n') // Handle <br>
+            .replace(/<\/div><div>/gi, '\n') // Handle adjacent divs
+            .replace(/<div>/gi, '\n') // Handle opening divs
+            .replace(/<\/div>/gi, '') // Handle closing divs
+            .replace(/<p>/gi, '') // Handle opening p
+            .replace(/<\/p>/gi, '\n\n') // Handle closing p (double newline for paragraphs)
+            .replace(/<[^>]+>/g, '') // Strip other tags
             .replace(/&nbsp;/g, ' ')
             .replace(/&amp;/g, '&')
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
             .replace(/&quot;/g, '"');
+
+        // Clean up excessive newlines
+        markdown = markdown.replace(/\n{3,}/g, '\n\n').trim();
+
         return markdown;
     };
 

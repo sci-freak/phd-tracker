@@ -1,7 +1,9 @@
 import React from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
-import WysiwygEditor from './WysiwygEditor';
+import NotesModal from './NotesModal';
+import SearchableSelect from './SearchableSelect';
 import { getCountryCode } from '../utils/countryFlags';
+import { countries } from '../constants/countries';
 
 const statusColors = {
     'Not Started': 'var(--text-secondary)',
@@ -13,11 +15,13 @@ const statusColors = {
     'Deadline Missed': 'var(--accent-danger)',
 };
 
-const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, onEditEnd }) => {
+const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, onEditEnd, dragHandleProps }) => {
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedApp, setEditedApp] = React.useState(app);
     const [editKey, setEditKey] = React.useState(Date.now());
     const [newRequirement, setNewRequirement] = React.useState('');
+    const [showFullNotes, setShowFullNotes] = React.useState(false);
+    const [isNotesModalOpen, setIsNotesModalOpen] = React.useState(false);
 
     const requirementOptions = ['TOEFL', 'IELTS', 'GRE', 'GMAT', 'Transcripts', 'SOP', 'CV', 'Personal Statement', '1 LOR', '2 LORs', '3 LORs', '4 LORs'];
 
@@ -127,11 +131,11 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     onChange={(e) => setEditedApp({ ...editedApp, department: e.target.value })}
                     placeholder="Department"
                 />
-                <input
+                <SearchableSelect
+                    options={countries}
                     value={editedApp.country || ''}
-                    onChange={(e) => setEditedApp({ ...editedApp, country: e.target.value })}
+                    onChange={(val) => setEditedApp({ ...editedApp, country: val })}
                     placeholder="Country"
-                    list="country-list"
                 />
                 <input
                     type="datetime-local"
@@ -213,12 +217,60 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     )}
                 </div>
 
-                <WysiwygEditor
-                    key={editKey}
-                    value={editedApp.notes}
-                    onChange={(e) => setEditedApp({ ...editedApp, notes: e.target.value })}
-                    placeholder="Notes"
-                    rows={3}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Notes</label>
+                    <div style={{
+                        position: 'relative',
+                        background: 'rgba(0, 0, 0, 0.2)',
+                        border: 'var(--glass-border)',
+                        borderRadius: '0.5rem',
+                        padding: '0.75rem',
+                        minHeight: '60px'
+                    }}>
+                        <div style={{
+                            fontSize: '0.85rem',
+                            color: editedApp.notes ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            paddingRight: '2rem',
+                            maxHeight: '100px',
+                            overflowY: 'auto',
+                            whiteSpace: 'pre-wrap',
+                            fontFamily: 'inherit'
+                        }}>
+                            {editedApp.notes || 'No notes added yet...'}
+                        </div>
+                        <button
+                            onClick={() => setIsNotesModalOpen(true)}
+                            style={{
+                                position: 'absolute',
+                                top: '0.5rem',
+                                right: '0.5rem',
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '0.9rem',
+                                padding: '0.25rem',
+                                color: 'var(--accent-primary)',
+                                transition: 'transform 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                            title="Edit Notes"
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                        >
+                            ✏️
+                        </button>
+                    </div>
+                </div>
+
+                <NotesModal
+                    isOpen={isNotesModalOpen}
+                    onClose={() => setIsNotesModalOpen(false)}
+                    initialNotes={editedApp.notes}
+                    title={editedApp.university}
+                    onSave={(newNotes) => setEditedApp({ ...editedApp, notes: newNotes })}
+                    startEditing={true}
                 />
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                     <button onClick={handleCancel} className="btn-action" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>Cancel</button>
@@ -242,31 +294,51 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
             flexDirection: 'column',
             gap: '1rem',
             transition: 'transform 0.2s',
-            position: 'relative'
+            position: 'relative',
+            height: '100%'
         }}
             id={`app-card-${app.id}`}
             onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
             onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
         >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                <div>
-                    <h3 style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>{app.university}</h3>
-                    <p style={{ color: 'var(--accent-primary)', fontSize: '0.9rem' }}>{app.program}</p>
-                    {app.department && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>📚 {app.department}</p>}
-                    {app.country && (
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            {countryCode ? (
-                                <img
-                                    src={`https://flagcdn.com/w20/${countryCode}.png`}
-                                    srcSet={`https://flagcdn.com/w40/${countryCode}.png 2x`}
-                                    width="20"
-                                    alt={app.country}
-                                    style={{ borderRadius: '2px' }}
-                                />
-                            ) : '🌍'}
-                            {app.country}
-                        </p>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'start' }}>
+                    {dragHandleProps && (
+                        <div
+                            {...dragHandleProps}
+                            style={{
+                                cursor: 'grab',
+                                color: 'var(--text-secondary)',
+                                fontSize: '1.2rem',
+                                padding: '0.25rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                opacity: 0.5
+                            }}
+                            title="Drag to reorder"
+                        >
+                            ⋮⋮
+                        </div>
                     )}
+                    <div>
+                        <h3 style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>{app.university}</h3>
+                        <p style={{ color: 'var(--accent-primary)', fontSize: '0.9rem' }}>{app.program}</p>
+                        {app.department && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>📚 {app.department}</p>}
+                        {app.country && (
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                {countryCode ? (
+                                    <img
+                                        src={`https://flagcdn.com/w20/${countryCode}.png`}
+                                        srcSet={`https://flagcdn.com/w40/${countryCode}.png 2x`}
+                                        width="20"
+                                        alt={app.country}
+                                        style={{ borderRadius: '2px' }}
+                                    />
+                                ) : '🌍'}
+                                {app.country}
+                            </p>
+                        )}
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button
@@ -405,18 +477,49 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
             )}
 
             {app.notes && (
-                <div style={{
-                    marginTop: '0.5rem',
-                    padding: '0.75rem',
-                    background: 'rgba(0,0,0,0.2)',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.9rem',
-                    color: 'var(--text-secondary)',
-                    wordBreak: 'break-word'
-                }}>
+                <div
+                    onClick={() => setIsNotesModalOpen(true)}
+                    style={{
+                        marginTop: '0.5rem',
+                        padding: '0.75rem',
+                        background: 'rgba(0,0,0,0.2)',
+                        borderRadius: '0.5rem',
+                        fontSize: '0.9rem',
+                        color: 'var(--text-secondary)',
+                        wordBreak: 'break-word',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                        maxHeight: '100px',
+                        overflowY: 'auto',
+                        border: '1px solid transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(0,0,0,0.3)';
+                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(0,0,0,0.2)';
+                        e.currentTarget.style.borderColor = 'transparent';
+                    }}
+                    title="Click to expand and edit notes"
+                >
                     <MarkdownRenderer text={app.notes} />
                 </div>
             )}
+
+            <NotesModal
+                isOpen={isNotesModalOpen}
+                onClose={() => setIsNotesModalOpen(false)}
+                initialNotes={app.notes}
+                title={app.university}
+                onSave={(newNotes) => {
+                    // Create a synthetic event or just call update directly
+                    // We need to call onEdit with the updated app
+                    const updatedApp = { ...app, notes: newNotes };
+                    onEdit(updatedApp);
+                }}
+                startEditing={false}
+            />
         </div>
     );
 };

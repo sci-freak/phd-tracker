@@ -47,8 +47,10 @@ input[type="datetime-local"] {
 }
 
 /* Custom scrollbar for webkit */
+/* Custom scrollbar for webkit */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -56,13 +58,12 @@ input[type="datetime-local"] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--text-secondary);
-  border-radius: 4px;
-  opacity: 0.5;
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-primary);
+  background: rgba(156, 163, 175, 0.6);
 }
 
 .empty-state {

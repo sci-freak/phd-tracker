@@ -90,7 +90,7 @@ const MarkdownRenderer = ({ text }) => {
         return elements.length > 0 ? elements : markdown;
     };
 
-    return <>{parseMarkdown(text)}</>;
+    return <div style={{ whiteSpace: 'pre-wrap' }}>{parseMarkdown(text)}</div>;
 };
 
 export default MarkdownRenderer;
