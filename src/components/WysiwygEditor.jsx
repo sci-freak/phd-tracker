@@ -10,6 +10,7 @@ const WysiwygEditor = ({ value, onChange, placeholder, rows = 3 }) => {
     const savedSelectionRef = useRef(null);
     const isTypingRef = useRef(false);
     const isUpdatingRef = useRef(false);
+    const debounceTimerRef = useRef(null);
 
     // Convert markdown to HTML for display
     const markdownToHtml = (markdown) => {
@@ -115,7 +116,7 @@ const WysiwygEditor = ({ value, onChange, placeholder, rows = 3 }) => {
         if (editorRef.current && value !== undefined) {
             // Only update if the content is actually different to prevent cursor jumping
             const currentMarkdown = htmlToMarkdown(editorRef.current.innerHTML);
-            if (value !== currentMarkdown) {
+            if (value !== currentMarkdown && !isTypingRef.current) {
                 const html = markdownToHtml(value);
                 isUpdatingRef.current = true;
                 editorRef.current.innerHTML = html;
@@ -130,8 +131,18 @@ const WysiwygEditor = ({ value, onChange, placeholder, rows = 3 }) => {
     const handleInput = () => {
         if (editorRef.current) {
             if (isUpdatingRef.current) return;
-            const markdown = htmlToMarkdown(editorRef.current.innerHTML);
-            onChange({ target: { value: markdown } });
+
+            isTypingRef.current = true;
+
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+
+            debounceTimerRef.current = setTimeout(() => {
+                const markdown = htmlToMarkdown(editorRef.current.innerHTML);
+                onChange({ target: { value: markdown } });
+                isTypingRef.current = false;
+            }, 500); // 500ms debounce
         }
     };
 
@@ -322,6 +333,54 @@ const WysiwygEditor = ({ value, onChange, placeholder, rows = 3 }) => {
                         title="Add Link"
                     >
                         🔗
+                    </button>
+                    <div style={{ width: '1px', background: 'rgba(255,255,255,0.1)', margin: '0 0.25rem' }} />
+                    <button
+                        type="button"
+                        onClick={() => {
+                            restoreSelection();
+                            const selection = window.getSelection();
+                            navigator.clipboard.writeText(selection.toString());
+                            setShowContextMenu(false);
+                        }}
+                        style={{
+                            padding: '0.4rem 0.6rem',
+                            background: 'var(--bg-primary)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '0.25rem',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem'
+                        }}
+                        title="Copy"
+                    >
+                        📋
+                    </button>
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            restoreSelection();
+                            try {
+                                const text = await navigator.clipboard.readText();
+                                document.execCommand('insertText', false, text);
+                                handleInput();
+                            } catch (err) {
+                                console.error('Failed to read clipboard contents: ', err);
+                            }
+                            setShowContextMenu(false);
+                        }}
+                        style={{
+                            padding: '0.4rem 0.6rem',
+                            background: 'var(--bg-primary)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '0.25rem',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem'
+                        }}
+                        title="Paste"
+                    >
+                        📥
                     </button>
                 </div>
             )}

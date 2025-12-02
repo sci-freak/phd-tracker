@@ -28,6 +28,14 @@ function createWindow() {
         // In production, load the built index.html
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
     }
+
+    // Handle external links
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('https:') || url.startsWith('http:')) {
+            shell.openExternal(url);
+        }
+        return { action: 'deny' };
+    });
 }
 
 // IPC handlers for window controls
