@@ -23,6 +23,15 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
     const [showFullNotes, setShowFullNotes] = React.useState(false);
     const [isNotesModalOpen, setIsNotesModalOpen] = React.useState(false);
 
+    // Normalize requirements to ensure it's always an array
+    const requirements = React.useMemo(() => {
+        if (Array.isArray(app.requirements)) return app.requirements;
+        if (typeof app.requirements === 'string' && app.requirements.trim()) {
+            return app.requirements.split(',').map(r => r.trim());
+        }
+        return [];
+    }, [app.requirements]);
+
     const requirementOptions = ['TOEFL', 'IELTS', 'GRE', 'GMAT', 'Transcripts', 'SOP', 'CV', 'Personal Statement', '1 LOR', '2 LORs', '3 LORs', '4 LORs'];
 
     React.useEffect(() => {
@@ -55,29 +64,41 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
     };
 
     const addRequirement = () => {
-        if (newRequirement && (!editedApp.requirements || !editedApp.requirements.includes(newRequirement))) {
+        const currentRequirements = Array.isArray(editedApp.requirements)
+            ? editedApp.requirements
+            : typeof editedApp.requirements === 'string' && editedApp.requirements
+                ? editedApp.requirements.split(',').map(r => r.trim())
+                : [];
+
+        if (newRequirement && !currentRequirements.includes(newRequirement)) {
             setEditedApp({
                 ...editedApp,
-                requirements: [...(editedApp.requirements || []), newRequirement]
+                requirements: [...currentRequirements, newRequirement]
             });
             setNewRequirement('');
         }
     };
 
     const removeRequirement = (req) => {
+        const currentRequirements = Array.isArray(editedApp.requirements)
+            ? editedApp.requirements
+            : typeof editedApp.requirements === 'string' && editedApp.requirements
+                ? editedApp.requirements.split(',').map(r => r.trim())
+                : [];
+
         setEditedApp({
             ...editedApp,
-            requirements: (editedApp.requirements || []).filter(r => r !== req)
+            requirements: currentRequirements.filter(r => r !== req)
         });
     };
 
     const formatDate = (dateString) => {
         if (!dateString) return 'No Deadline';
-        return new Date(dateString).toLocaleDateString(undefined, {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-        });
+        const date = new Date(dateString);
+        const d = String(date.getDate()).padStart(2, '0');
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const y = date.getFullYear();
+        return `${d}-${m}-${y}`;
     };
 
     const linkifyText = (text) => {
@@ -179,42 +200,52 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                             + Add
                         </button>
                     </div>
-                    {editedApp.requirements && editedApp.requirements.length > 0 && (
-                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                            {editedApp.requirements.map(req => (
-                                <span
-                                    key={req}
-                                    style={{
-                                        background: 'var(--accent-primary)',
-                                        color: 'white',
-                                        padding: '0.25rem 0.75rem',
-                                        borderRadius: '1rem',
-                                        fontSize: '0.85rem',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.5rem'
-                                    }}
-                                >
-                                    {req}
-                                    <button
-                                        type="button"
-                                        onClick={() => removeRequirement(req)}
+                    {(() => {
+                        const editReqs = Array.isArray(editedApp.requirements)
+                            ? editedApp.requirements
+                            : typeof editedApp.requirements === 'string' && editedApp.requirements
+                                ? editedApp.requirements.split(',').map(r => r.trim())
+                                : [];
+
+                        if (editReqs.length === 0) return null;
+
+                        return (
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                                {editReqs.map(req => (
+                                    <span
+                                        key={req}
                                         style={{
-                                            background: 'none',
-                                            border: 'none',
+                                            background: 'var(--accent-primary)',
                                             color: 'white',
-                                            cursor: 'pointer',
-                                            fontSize: '1rem',
-                                            padding: 0,
-                                            lineHeight: 1
+                                            padding: '0.25rem 0.75rem',
+                                            borderRadius: '1rem',
+                                            fontSize: '0.85rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem'
                                         }}
                                     >
-                                        ×
-                                    </button>
-                                </span>
-                            ))}
-                        </div>
-                    )}
+                                        {req}
+                                        <button
+                                            type="button"
+                                            onClick={() => removeRequirement(req)}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: 'white',
+                                                cursor: 'pointer',
+                                                fontSize: '1rem',
+                                                padding: 0,
+                                                lineHeight: 1
+                                            }}
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        );
+                    })()}
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -386,9 +417,9 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                 {app.qsRanking && <span>🏆 QS Rank: #{app.qsRanking}</span>}
             </div>
 
-            {app.requirements && app.requirements.length > 0 && (
+            {requirements && requirements.length > 0 && (
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    {app.requirements.map(req => (
+                    {requirements.map(req => (
                         <span
                             key={req}
                             style={{

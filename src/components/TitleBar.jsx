@@ -6,34 +6,16 @@ const TitleBar = () => {
 
     useEffect(() => {
         const handleMouseMove = (e) => {
-            if (e.clientY < 50) {
-                setIsVisible(true);
-            } else if (e.clientY > 80) {
-                setIsVisible(false);
-            }
+            if (e.clientY < 50) setIsVisible(true);
+            else if (e.clientY > 80) setIsVisible(false);
         };
-
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, []);
 
-    const handleMinimize = () => {
-        if (window.electronAPI) {
-            window.electronAPI.minimize();
-        }
-    };
-
-    const handleMaximize = () => {
-        if (window.electronAPI) {
-            window.electronAPI.maximize();
-        }
-    };
-
-    const handleClose = () => {
-        if (window.electronAPI) {
-            window.electronAPI.close();
-        }
-    };
+    const handleMinimize = () => window.electronAPI?.minimize();
+    const handleMaximize = () => window.electronAPI?.maximize();
+    const handleClose = () => window.electronAPI?.close();
 
     return (
         <div style={{

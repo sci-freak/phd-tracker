@@ -7,13 +7,15 @@ export const listUpcomingEvents = async (accessToken) => {
         });
 
         if (!response.ok) {
-            throw new Error('Failed to fetch events');
+            const error = new Error('Failed to fetch events');
+            error.status = response.status;
+            throw error;
         }
 
         const data = await response.json();
         return data.items || [];
     } catch (error) {
         console.error("Error fetching events", error);
-        return [];
+        throw error; // Re-throw so GoogleConnect.jsx can handle it
     }
 };

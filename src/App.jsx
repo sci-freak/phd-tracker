@@ -5,11 +5,20 @@ import ApplicationForm from './components/ApplicationForm'
 import TitleBar from './components/TitleBar'
 import CalendarView from './components/CalendarView'
 import ApplicationDetailModal from './components/ApplicationDetailModal'
-import ErrorBoundary from './components/ErrorBoundary';
+import Login from './components/Login'
+import ConflictResolutionModal from './components/ConflictResolutionModal'
 
 import Papa from 'papaparse';
 
 import { ThemeProvider } from './context/ThemeContext';
+import { useAuth } from './context/AuthContext';
+import { DataService } from './services/DataService';
+import { db } from './config/firebase';
+import {
+  collection,
+  doc,
+  writeBatch
+} from 'firebase/firestore';
 
 import { countries } from './constants/countries';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -19,10 +28,8 @@ import SearchModal from './components/SearchModal';
 import SettingsModal from './components/SettingsModal';
 
 function App() {
-  const [applications, setApplications] = useState(() => {
-    const saved = localStorage.getItem('phd-applications');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const { currentUser, signOut } = useAuth();
+  const [applications, setApplications] = useState([]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -36,12 +43,64 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [shortcut, setShortcut] = useState(() => localStorage.getItem('searchShortcut') || 'Ctrl+K');
 
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
+  const [guestDataToMerge, setGuestDataToMerge] = useState([]);
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  // Firestore/Data Sync & Merge Logic
+  useEffect(() => {
+    // If we have a user (Guest or Real), subscribe
+    if (!currentUser) {
+      setApplications([]);
+      return;
+    }
+
+    // Check for guest data when a REAL user logs in
+    if (!currentUser.isGuest) {
+      const guestData = DataService.fetchGuestData();
+      if (guestData.length > 0) {
+        setGuestDataToMerge(guestData);
+        setConflictModalOpen(true);
+      }
+    }
+
+    const unsubscribe = DataService.subscribeToApplications(currentUser, (apps) => {
+      setApplications(apps);
+    });
+
+    return () => unsubscribe && unsubscribe();
+  }, [currentUser]);
+
+  const handleMergeResolution = async (resolvedApps) => {
+    try {
+      if (resolvedApps.length > 0) {
+        await DataService.batchAdd(currentUser, resolvedApps);
+      }
+      DataService.clearGuestData();
+      setConflictModalOpen(false);
+      setGuestDataToMerge([]);
+      alert('Sync complete!');
+    } catch (e) {
+      console.error("Merge failed", e);
+      alert("Failed to merge data. Please try again.");
+    }
+  };
+
+  const handleMergeDiscard = () => {
+    if (confirm("Keep local guest data separate? You can access it again by logging out and continuing as Guest.")) {
+      // Do NOT clear guest data.
+      setConflictModalOpen(false);
+
+      // We might want to clear the 'guestDataToMerge' state so the modal specific to this login session closes.
+      setGuestDataToMerge([]);
+    }
+  };
 
   // Map applications to calendar events
   const calendarEvents = applications
@@ -60,19 +119,15 @@ function App() {
     });
 
   useEffect(() => {
-    localStorage.setItem('phd-applications', JSON.stringify(applications));
-  }, [applications]);
-
-  useEffect(() => {
     const handleKeyDown = (e) => {
       const keys = shortcut.split('+');
-      const mainKey = keys[keys.length - 1].toLowerCase();
+      const mainKey = keys[keys.length - 1]?.toLowerCase();
       const hasCtrl = keys.includes('Ctrl');
       const hasCmd = keys.includes('Cmd');
       const hasAlt = keys.includes('Alt');
       const hasShift = keys.includes('Shift');
 
-      const eventKey = e.key.toLowerCase();
+      const eventKey = e.key?.toLowerCase();
       const eventCtrl = e.ctrlKey;
       const eventMeta = e.metaKey; // Cmd
       const eventAlt = e.altKey;
@@ -89,6 +144,12 @@ function App() {
         e.preventDefault();
         setIsSearchOpen(true);
       }
+
+      // Fail-safe Sign Out: Ctrl+Shift+L
+      if (e.ctrlKey && e.shiftKey && e.key?.toLowerCase() === 'l') {
+        e.preventDefault();
+        signOut();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -101,25 +162,9 @@ function App() {
     if (active.id !== over.id) {
       setApplications((items) => {
         let currentItems = [...items];
-
-        // If we are in an automated sort mode, we need to "freeze" the current sorted order
-        // into a manual order before applying the drag.
         if (sortOption !== 'manual') {
-          currentItems.sort((a, b) => {
-            if (sortOption === 'deadline') {
-              const dateA = a.deadline ? new Date(a.deadline) : new Date('9999-12-31');
-              const dateB = b.deadline ? new Date(b.deadline) : new Date('9999-12-31');
-              return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
-            }
-            if (sortOption === 'status') {
-              return sortDirection === 'asc'
-                ? a.status.localeCompare(b.status)
-                : b.status.localeCompare(a.status);
-            }
-            return 0;
-          });
+          // simpler sort reset
         }
-
         const oldIndex = currentItems.findIndex((item) => item.id === active.id);
         const newIndex = currentItems.findIndex((item) => item.id === over.id);
         return arrayMove(currentItems, oldIndex, newIndex);
@@ -128,24 +173,37 @@ function App() {
     }
   };
 
-  const addApplication = (app) => {
-    setApplications([app, ...applications]);
+  const addApplication = async (app) => {
+    try {
+      await DataService.addApplication(currentUser, app);
+    } catch (e) {
+      console.error("Error adding document: ", e);
+      alert("Failed to save application");
+    }
   };
 
-  const deleteApplication = (id) => {
-    setApplications(applications.filter(app => app.id !== id));
+  const deleteApplication = async (id) => {
+    try {
+      await DataService.deleteApplication(currentUser, id);
+    } catch (e) {
+      console.error("Error deleting document: ", e);
+    }
   };
 
-  const updateStatus = (id, newStatus) => {
-    setApplications(applications.map(app =>
-      app.id === id ? { ...app, status: newStatus } : app
-    ));
+  const updateStatus = async (id, newStatus) => {
+    try {
+      await DataService.updateStatus(currentUser, id, newStatus);
+    } catch (e) {
+      console.error("Error updating status: ", e);
+    }
   };
 
-  const editApplication = (updatedApp) => {
-    setApplications(applications.map(app =>
-      app.id === updatedApp.id ? updatedApp : app
-    ));
+  const editApplication = async (updatedApp) => {
+    try {
+      await DataService.updateApplication(currentUser, updatedApp);
+    } catch (e) {
+      console.error("Error updating application: ", e);
+    }
   };
 
   const exportData = () => {
@@ -165,25 +223,22 @@ function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const content = event.target.result;
+      let importedApps = [];
 
       if (file.name.endsWith('.json')) {
         try {
-          const importedApps = JSON.parse(content);
-          if (Array.isArray(importedApps)) {
-            setApplications([...importedApps, ...applications]);
-            alert('Backup imported successfully!');
-          }
+          importedApps = JSON.parse(content);
         } catch (err) {
           alert('Invalid JSON file');
+          return;
         }
       } else if (file.name.endsWith('.csv')) {
         Papa.parse(content, {
           header: true,
           complete: (results) => {
-            const importedApps = results.data.map(row => ({
-              id: Date.now() + Math.random(),
+            importedApps = results.data.map(row => ({
               university: row['University'] || row['Name'] || 'Unknown',
               program: row['Program'] || 'PhD',
               deadline: row['Deadline'] || '',
@@ -191,19 +246,43 @@ function App() {
               notes: row['Notes'] || '',
               files: []
             })).filter(app => app.university !== 'Unknown');
-
-            setApplications([...importedApps, ...applications]);
-            alert(`Imported ${importedApps.length} applications from CSV!`);
+            processImports(importedApps);
           }
         });
+        return;
       }
+
+      if (importedApps.length > 0) processImports(importedApps);
     };
     reader.readAsText(file);
   };
 
+  const processImports = async (apps) => {
+    if (!confirm(`Import ${apps.length} applications? This will add them to your cloud account.`)) return;
+
+    const batch = writeBatch(db);
+    apps.forEach(app => {
+      const newRef = doc(collection(db, `users/${currentUser.uid}/applications`));
+      const { id, ...appData } = app;
+      batch.set(newRef, appData);
+    });
+
+    try {
+      await batch.commit();
+      alert('Import successful!');
+    } catch (e) {
+      console.error("Import failed", e);
+      alert("Import failed");
+    }
+  }
+
   const filteredApplications = applications.filter(app => {
-    const matchesSearch = (app.university.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      app.program.toLowerCase().includes(searchTerm.toLowerCase()));
+    if (!app) return false;
+    const term = (searchTerm || '').toLowerCase();
+    const u = app.university?.toLowerCase() || '';
+    const p = app.program?.toLowerCase() || '';
+
+    const matchesSearch = u.includes(term) || p.includes(term);
     const matchesStatus = statusFilter === 'All' || app.status === statusFilter;
     const matchesCountry = countryFilter === 'All' || app.country === countryFilter;
     return matchesSearch && matchesStatus && matchesCountry;
@@ -228,6 +307,10 @@ function App() {
     return acc;
   }, {});
 
+  if (!currentUser) {
+    return <Login />;
+  }
+
   return (
     <ThemeProvider>
       <TitleBar />
@@ -237,10 +320,16 @@ function App() {
             <option key={country} value={country} />
           ))}
         </datalist>
-        <div className="header">
+        <div className="header" style={{ textAlign: 'center' }}>
           <h1>PhD Application Tracker</h1>
           <p>Manage your journey to the doctorate.</p>
-          <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+
+          <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+            {currentUser && !currentUser.isGuest && (
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginRight: '0.5rem' }}>
+                Signed in as <strong>{currentUser.email}</strong>
+              </span>
+            )}
             <button onClick={() => setIsSettingsOpen(true)} className="btn-action">
               <span>⚙️</span> Settings
             </button>
@@ -256,6 +345,13 @@ function App() {
                 style={{ display: 'none' }}
               />
             </label>
+            <button 
+              onClick={signOut} 
+              className="btn-action" 
+              style={{ borderColor: '#ef4444', color: '#ef4444' }}
+            >
+              Sign Out
+            </button>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '1rem' }}>
@@ -430,7 +526,6 @@ function App() {
         onSelect={(app) => {
           setEditingAppId(app.id);
           setView('list');
-          // Optional: scroll to item
           setTimeout(() => {
             const el = document.getElementById(`app-card-${app.id}`);
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -445,6 +540,12 @@ function App() {
           setShortcut(newShortcut);
           localStorage.setItem('searchShortcut', newShortcut);
         }}
+      />
+      <ConflictResolutionModal
+        isOpen={conflictModalOpen}
+        onClose={handleMergeDiscard}
+        guestApps={guestDataToMerge}
+        onResolve={handleMergeResolution}
       />
     </ThemeProvider>
   )
