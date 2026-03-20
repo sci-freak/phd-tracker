@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import '../styles/Modal.css';
 
 export default function ConflictResolutionModal({ isOpen, onClose, guestApps, onResolve }) {
-    if (!isOpen) return null;
-
     const [resolutions, setResolutions] = useState({}); // { [appId]: 'auto' | 'manual' | 'skip' }
     const [manualNames, setManualNames] = useState({}); // { [appId]: 'New Name' }
+
+    if (!isOpen) return null;
 
     const handleResolutionChange = (appId, resolution) => {
         setResolutions(prev => ({ ...prev, [appId]: resolution }));
@@ -21,10 +21,6 @@ export default function ConflictResolutionModal({ isOpen, onClose, guestApps, on
             if (resolution === 'skip') return null;
 
             let newApp = { ...app };
-            // We strip the ID so Firestore generates a new one to avoid ID collisions
-            // or we could keep it if we knew it was unique. Safe bet is new ID.
-            // But DataService batchAdd will handle new IDs.
-            // Here we just modify properties.
 
             if (resolution === 'auto') {
                 newApp.university = `${newApp.university} (Local)`;
@@ -42,7 +38,7 @@ export default function ConflictResolutionModal({ isOpen, onClose, guestApps, on
             <div className="modal-content" style={{ maxWidth: '600px' }}>
                 <div className="modal-header">
                     <h2>Sync Local Data</h2>
-                    <button className="close-btn" onClick={onClose}>×</button>
+                    <button className="close-btn" onClick={onClose}>X</button>
                 </div>
                 <div className="modal-body">
                     <p>You have applications saved locally. How would you like to merge them with your cloud account?</p>

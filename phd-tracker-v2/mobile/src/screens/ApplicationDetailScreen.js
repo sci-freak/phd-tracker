@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Linking } from 'react-native';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { formatDeadlineDate } from '@phd-tracker/shared/dates';
+import { getStatusColor } from '@phd-tracker/shared/statuses';
 import { db } from '../config/firebase';
 import { MobileDataService } from '../services/MobileDataService';
 import { useAuth } from '../context/AuthContext';
@@ -13,12 +15,6 @@ export default function ApplicationDetailScreen({ navigation, route }) {
 
     useEffect(() => {
         if (user?.isGuest) {
-            // For Guest, we can simulate subscription via polling or manual fetch
-            // Using MobileDataService.subscribe would be best for consistency if extended to support single doc
-            // But MobileDataService currently subscribes to ALL apps.
-            // Let's simple fetch for now and maybe poll. 
-            // Better: subscribe to all and filter? It's cheap for local.
-
             const unsubscribe = MobileDataService.subscribeToApplications(user, (apps) => {
                 const app = apps.find(a => a.id === applicationId);
                 if (app) {
@@ -71,15 +67,6 @@ export default function ApplicationDetailScreen({ navigation, route }) {
                 }
             ]
         );
-    };
-
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'Accepted': return '#22c55e';
-            case 'Rejected': return '#ef4444';
-            case 'Submitted': return '#3b82f6';
-            default: return '#64748b';
-        }
     };
 
     const handleOpenLink = (url) => {
@@ -170,10 +157,7 @@ export default function ApplicationDetailScreen({ navigation, route }) {
             <View style={styles.section}>
                 <Text style={styles.label}>Deadline</Text>
                 <Text style={styles.value}>
-                    {application.deadline ? (() => {
-                        const [y, m, d] = application.deadline.split('-');
-                        return `${d}-${m}-${y}`;
-                    })() : 'None'}
+                    {application.deadline ? formatDeadlineDate(application.deadline, 'None') : 'None'}
                 </Text>
             </View>
 

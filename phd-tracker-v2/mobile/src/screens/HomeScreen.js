@@ -1,7 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Linking, Image } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    StyleSheet,
+    TouchableOpacity,
+    ActivityIndicator,
+    Alert,
+    TextInput,
+    Modal,
+    Linking,
+    Image
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
+import { compareApplicationsByDeadline, compareApplicationsByStatus } from '@phd-tracker/shared/applications';
+import { formatDeadlineDate, getBackupDateStamp } from '@phd-tracker/shared/dates';
+import { mapImportedCsvRow, parseImportedJson } from '@phd-tracker/shared/imports';
+import { STATUS_FILTER_OPTIONS, getStatusColor } from '@phd-tracker/shared/statuses';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import Papa from 'papaparse';
 import { getCountryCode } from '../utils/countryFlags';
 import { useAuth } from '../context/AuthContext';
 import { MobileDataService } from '../services/MobileDataService';
@@ -13,10 +33,9 @@ export default function HomeScreen({ navigation }) {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
-    const [sortOption, setSortOption] = useState('deadline'); // deadline, status
+    const [sortOption, setSortOption] = useState('deadline');
     const [isFilterModalVisible, setFilterModalVisible] = useState(false);
-
-    // Conflict Logic
+    const [isActionsModalVisible, setActionsModalVisible] = useState(false);
     const [conflictModalVisible, setConflictModalVisible] = useState(false);
     const [guestDataToMerge, setGuestDataToMerge] = useState([]);
 
@@ -32,6 +51,7 @@ export default function HomeScreen({ navigation }) {
                 }
             }
         };
+
         checkGuestData();
 
         const unsubscribe = MobileDataService.subscribeToApplications(user, (apps) => {
@@ -50,9 +70,7 @@ export default function HomeScreen({ navigation }) {
             if (resolvedApps.length > 0) {
                 await MobileDataService.batchAdd(user, resolvedApps);
             }
-            // Clear data only after successful merge of selected items
             await MobileDataService.clearGuestData();
-
             setConflictModalVisible(false);
             setGuestDataToMerge([]);
             Alert.alert('Success', 'Applications merged successfully!');
@@ -73,7 +91,6 @@ export default function HomeScreen({ navigation }) {
                 {
                     text: 'Keep Separate',
                     onPress: () => {
-                        // Do NOT clear data
                         setConflictModalVisible(false);
                         setGuestDataToMerge([]);
                     }
@@ -85,18 +102,19 @@ export default function HomeScreen({ navigation }) {
     const handleSignOut = async () => {
         try {
             await logout();
-        } catch (error) {
+        } catch {
             Alert.alert('Error', 'Failed to sign out');
         }
     };
 
     const handleOpenLink = (url) => {
         if (!url) return;
-        let finalUrl = url;
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            finalUrl = `https://${url}`;
-        }
-        Linking.openURL(finalUrl).catch(err => Alert.alert("Error", "Couldn't open link"));
+
+        const finalUrl = url.startsWith('http://') || url.startsWith('https://')
+            ? url
+            : `https://${url}`;
+
+        Linking.openURL(finalUrl).catch(() => Alert.alert('Error', "Couldn't open link"));
     };
 
     const formatUrl = (url) => {
@@ -104,20 +122,101 @@ export default function HomeScreen({ navigation }) {
         return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
     };
 
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'Accepted': return '#22c55e';
-            case 'Rejected': return '#ef4444';
-            case 'Submitted': return '#3b82f6';
-            case 'In Progress': return '#eab308';
-            default: return '#64748b';
+    const handleExport = async () => {
+        try {
+            setActionsModalVisible(false);
+            const fileName = `phd-applications-${getBackupDateStamp()}.json`;
+            const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+            await FileSystem.writeAsStringAsync(
+                fileUri,
+                JSON.stringify(applications, null, 2),
+                { encoding: FileSystem.EncodingType.UTF8 }
+            );
+
+            const canShare = await Sharing.isAvailableAsync();
+            if (!canShare) {
+                Alert.alert('Export Ready', `Backup saved to cache as ${fileName}. Sharing is not available on this device.`);
+                return;
+            }
+
+            await Sharing.shareAsync(fileUri, {
+                mimeType: 'application/json',
+                dialogTitle: 'Export Application Backup'
+            });
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to export backup');
+        }
+    };
+
+    const confirmImport = (count) => {
+        return new Promise((resolve) => {
+            const destination = user?.isGuest ? 'local guest storage' : 'your cloud account';
+            Alert.alert(
+                'Import Applications',
+                `Import ${count} applications into ${destination}?`,
+                [
+                    { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+                    { text: 'Import', onPress: () => resolve(true) }
+                ]
+            );
+        });
+    };
+
+    const handleImport = async () => {
+        try {
+            setActionsModalVisible(false);
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/json', 'text/csv', 'text/comma-separated-values', 'text/plain'],
+                copyToCacheDirectory: true,
+                multiple: false
+            });
+
+            if (result.canceled || !result.assets?.length) {
+                return;
+            }
+
+            const asset = result.assets[0];
+            const content = await FileSystem.readAsStringAsync(asset.uri, {
+                encoding: FileSystem.EncodingType.UTF8
+            });
+
+            let importedApps = [];
+            const lowerName = asset.name?.toLowerCase() || '';
+
+            if (lowerName.endsWith('.json')) {
+                importedApps = parseImportedJson(content);
+            } else if (lowerName.endsWith('.csv')) {
+                const parsed = Papa.parse(content, { header: true });
+                importedApps = parsed.data.map(mapImportedCsvRow).filter(Boolean);
+            } else {
+                Alert.alert('Unsupported File', 'Please choose a JSON or CSV file.');
+                return;
+            }
+
+            if (importedApps.length === 0) {
+                Alert.alert('No Data', 'No valid applications were found in that file.');
+                return;
+            }
+
+            const confirmed = await confirmImport(importedApps.length);
+            if (!confirmed) {
+                return;
+            }
+
+            await MobileDataService.importApplications(user, importedApps);
+            Alert.alert('Success', 'Import successful!');
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Import failed');
         }
     };
 
     const handleDelete = async (id) => {
         try {
             await MobileDataService.deleteApplication(user, id);
-        } catch (error) {
+        } catch {
             Alert.alert('Error', 'Failed to delete application');
         }
     };
@@ -133,22 +232,24 @@ export default function HomeScreen({ navigation }) {
         );
     };
 
-    const filteredApplications = applications.filter(app => {
-        const matchesSearch = (app.university?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-            (app.program?.toLowerCase() || '').includes(searchTerm.toLowerCase());
-        const matchesStatus = statusFilter === 'All' || app.status === statusFilter;
-        return matchesSearch && matchesStatus;
-    }).sort((a, b) => {
-        if (sortOption === 'deadline') {
-            const dateA = a.deadline ? new Date(a.deadline) : new Date('9999-12-31');
-            const dateB = b.deadline ? new Date(b.deadline) : new Date('9999-12-31');
-            return dateA - dateB;
-        }
-        if (sortOption === 'status') {
-            return (a.status || '').localeCompare(b.status || '');
-        }
-        return 0;
-    });
+    const filteredApplications = applications
+        .filter((app) => {
+            const search = searchTerm.toLowerCase();
+            const matchesSearch =
+                (app.university?.toLowerCase() || '').includes(search) ||
+                (app.program?.toLowerCase() || '').includes(search);
+            const matchesStatus = statusFilter === 'All' || app.status === statusFilter;
+            return matchesSearch && matchesStatus;
+        })
+        .sort((a, b) => {
+            if (sortOption === 'deadline') {
+                return compareApplicationsByDeadline(a, b, 'asc');
+            }
+            if (sortOption === 'status') {
+                return compareApplicationsByStatus(a, b, 'asc');
+            }
+            return 0;
+        });
 
     const renderItem = ({ item }) => {
         const countryCode = getCountryCode(item.country);
@@ -165,53 +266,52 @@ export default function HomeScreen({ navigation }) {
                             <Text style={styles.statusText}>{item.status}</Text>
                         </View>
                     </View>
+
                     <Text style={styles.program}>{item.program}</Text>
 
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 }}>
+                    <View style={styles.metaRow}>
                         {item.country ? (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={styles.metaItem}>
                                 {countryCode ? (
                                     <Image
                                         source={{ uri: `https://flagcdn.com/w40/${countryCode}.png` }}
-                                        style={{ width: 20, height: 14, borderRadius: 2 }}
+                                        style={styles.flag}
                                     />
                                 ) : (
-                                    <Text>🌍</Text>
+                                    <Text style={styles.metaFallback}>Globe</Text>
                                 )}
-                                <Text style={{ color: '#94a3b8', fontSize: 13 }}>{item.country}</Text>
+                                <Text style={styles.metaText}>{item.country}</Text>
                             </View>
                         ) : null}
+
                         {item.deadline ? (
-                            <Text style={{ color: '#94a3b8', fontSize: 13 }}>
-                                📅 {(() => {
-                                    const [y, m, d] = item.deadline.split('-');
-                                    return `${d}-${m}-${y}`;
-                                })()}
+                            <Text style={styles.metaText}>
+                                Due {formatDeadlineDate(item.deadline, 'No Deadline')}
                             </Text>
                         ) : null}
                     </View>
 
-                    {item.requirements && Array.isArray(item.requirements) && item.requirements.length > 0 && (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                            {item.requirements.slice(0, 3).map(req => (
+                    {Array.isArray(item.requirements) && item.requirements.length > 0 ? (
+                        <View style={styles.requirementsRow}>
+                            {item.requirements.slice(0, 3).map((req) => (
                                 <View key={req} style={styles.miniBadge}>
                                     <Text style={styles.miniBadgeText}>{req}</Text>
                                 </View>
                             ))}
-                            {item.requirements.length > 3 && (
+                            {item.requirements.length > 3 ? (
                                 <View style={styles.miniBadge}>
                                     <Text style={styles.miniBadgeText}>+{item.requirements.length - 3}</Text>
                                 </View>
-                            )}
+                            ) : null}
                         </View>
-                    )}
+                    ) : null}
 
                     {item.website ? (
                         <TouchableOpacity
-                            style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                            style={styles.linkButton}
                             onPress={() => handleOpenLink(item.website)}
                         >
-                            <Text style={{ color: '#3b82f6', fontSize: 13 }}>🔗 {formatUrl(item.website)}</Text>
+                            <Text style={styles.linkText}>Link {formatUrl(item.website)}</Text>
                         </TouchableOpacity>
                     ) : null}
                 </TouchableOpacity>
@@ -232,11 +332,17 @@ export default function HomeScreen({ navigation }) {
             <View style={styles.header}>
                 <View>
                     <Text style={styles.title}>PhD Applications</Text>
-                    <Text style={styles.subtitle}>{filteredApplications.length} Applications {user.isGuest ? '(Guest)' : ''}</Text>
+                    <Text style={styles.subtitle}>
+                        {filteredApplications.length} Applications {user.isGuest ? '(Guest)' : ''}
+                    </Text>
                 </View>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
+
+                <View style={styles.headerActions}>
                     <TouchableOpacity onPress={() => navigation.navigate('Calendar')} style={styles.iconButton}>
-                        <Text style={styles.iconButtonText}>📅</Text>
+                        <Text style={styles.iconButtonText}>Cal</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setActionsModalVisible(true)} style={styles.iconButton}>
+                        <Text style={styles.iconButtonText}>More</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
                         <Text style={styles.signOutText}>Sign Out</Text>
@@ -256,18 +362,18 @@ export default function HomeScreen({ navigation }) {
                     style={styles.filterButton}
                     onPress={() => setFilterModalVisible(true)}
                 >
-                    <Text style={styles.filterButtonText}>⚙️</Text>
+                    <Text style={styles.filterButtonText}>Filter</Text>
                 </TouchableOpacity>
             </View>
 
             <FlatList
                 data={filteredApplications}
                 renderItem={renderItem}
-                keyExtractor={item => item.id}
+                keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.list}
                 ListEmptyComponent={
                     <Text style={styles.emptyText}>
-                        {applications.length === 0 ? "No applications found. Add some!" : "No matches found."}
+                        {applications.length === 0 ? 'No applications found. Add some!' : 'No matches found.'}
                     </Text>
                 }
             />
@@ -281,7 +387,7 @@ export default function HomeScreen({ navigation }) {
 
             <Modal
                 visible={isFilterModalVisible}
-                transparent={true}
+                transparent
                 animationType="slide"
                 onRequestClose={() => setFilterModalVisible(false)}
             >
@@ -291,13 +397,15 @@ export default function HomeScreen({ navigation }) {
 
                         <Text style={styles.modalLabel}>Status</Text>
                         <View style={styles.modalOptions}>
-                            {['All', 'Not Started', 'In Progress', 'Submitted', 'Accepted', 'Rejected'].map(status => (
+                            {STATUS_FILTER_OPTIONS.map((status) => (
                                 <TouchableOpacity
                                     key={status}
                                     style={[styles.optionButton, statusFilter === status && styles.optionButtonActive]}
                                     onPress={() => setStatusFilter(status)}
                                 >
-                                    <Text style={[styles.optionText, statusFilter === status && styles.optionTextActive]}>{status}</Text>
+                                    <Text style={[styles.optionText, statusFilter === status && styles.optionTextActive]}>
+                                        {status}
+                                    </Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
@@ -308,13 +416,17 @@ export default function HomeScreen({ navigation }) {
                                 style={[styles.optionButton, sortOption === 'deadline' && styles.optionButtonActive]}
                                 onPress={() => setSortOption('deadline')}
                             >
-                                <Text style={[styles.optionText, sortOption === 'deadline' && styles.optionTextActive]}>Deadline</Text>
+                                <Text style={[styles.optionText, sortOption === 'deadline' && styles.optionTextActive]}>
+                                    Deadline
+                                </Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={[styles.optionButton, sortOption === 'status' && styles.optionButtonActive]}
                                 onPress={() => setSortOption('status')}
                             >
-                                <Text style={[styles.optionText, sortOption === 'status' && styles.optionTextActive]}>Status</Text>
+                                <Text style={[styles.optionText, sortOption === 'status' && styles.optionTextActive]}>
+                                    Status
+                                </Text>
                             </TouchableOpacity>
                         </View>
 
@@ -323,6 +435,34 @@ export default function HomeScreen({ navigation }) {
                             onPress={() => setFilterModalVisible(false)}
                         >
                             <Text style={styles.closeButtonText}>Done</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            <Modal
+                visible={isActionsModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setActionsModalVisible(false)}
+            >
+                <View style={styles.actionsOverlay}>
+                    <View style={styles.actionsSheet}>
+                        <Text style={styles.actionsTitle}>Backup & Tools</Text>
+
+                        <TouchableOpacity style={styles.actionsButton} onPress={handleExport}>
+                            <Text style={styles.actionsButtonText}>Export Backup</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.actionsButton} onPress={handleImport}>
+                            <Text style={styles.actionsButtonText}>Import Backup</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.actionsButton, styles.actionsButtonSecondary]}
+                            onPress={() => setActionsModalVisible(false)}
+                        >
+                            <Text style={styles.actionsButtonText}>Close</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -356,6 +496,10 @@ const styles = StyleSheet.create({
         padding: 20,
         backgroundColor: '#1e293b',
     },
+    headerActions: {
+        flexDirection: 'row',
+        gap: 10,
+    },
     title: {
         fontSize: 20,
         fontWeight: 'bold',
@@ -371,7 +515,9 @@ const styles = StyleSheet.create({
         borderRadius: 8,
     },
     iconButtonText: {
-        fontSize: 16,
+        fontSize: 14,
+        color: '#cbd5e1',
+        fontWeight: '600',
     },
     signOutButton: {
         padding: 8,
@@ -405,7 +551,8 @@ const styles = StyleSheet.create({
         borderColor: '#334155',
     },
     filterButtonText: {
-        fontSize: 18,
+        color: '#cbd5e1',
+        fontWeight: '600',
     },
     list: {
         padding: 16,
@@ -437,9 +584,36 @@ const styles = StyleSheet.create({
         color: '#cbd5e1',
         marginBottom: 8,
     },
-    deadline: {
-        fontSize: 14,
+    metaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 8,
+        gap: 10,
+        flexWrap: 'wrap',
+    },
+    metaItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    metaText: {
         color: '#94a3b8',
+        fontSize: 13,
+    },
+    metaFallback: {
+        color: '#94a3b8',
+        fontSize: 12,
+    },
+    flag: {
+        width: 20,
+        height: 14,
+        borderRadius: 2,
+    },
+    requirementsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginBottom: 8,
     },
     statusBadge: {
         paddingHorizontal: 8,
@@ -450,6 +624,14 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 12,
         fontWeight: '600',
+    },
+    linkButton: {
+        alignSelf: 'flex-start',
+        marginTop: 4,
+    },
+    linkText: {
+        color: '#3b82f6',
+        fontSize: 13,
     },
     emptyText: {
         color: '#94a3b8',
@@ -538,6 +720,41 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
+    },
+    actionsOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.45)',
+        justifyContent: 'center',
+        padding: 24,
+    },
+    actionsSheet: {
+        backgroundColor: '#1e293b',
+        borderRadius: 18,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: '#334155',
+        gap: 12,
+    },
+    actionsTitle: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+        marginBottom: 4,
+    },
+    actionsButton: {
+        backgroundColor: '#3b82f6',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    actionsButtonSecondary: {
+        backgroundColor: '#334155',
+    },
+    actionsButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 15,
     },
     deleteAction: {
         backgroundColor: '#ef4444',

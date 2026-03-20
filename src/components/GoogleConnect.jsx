@@ -1,77 +1,61 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { listUpcomingEvents } from '../services/googleCalendar';
 
 const GoogleConnect = ({ onEventsLoaded }) => {
-    const [clientId, setClientId] = useState(() => localStorage.getItem('google-client-id') || '');
-    const [clientSecret, setClientSecret] = useState(() => localStorage.getItem('google-client-secret') || '');
+    const [clientId, setClientId] = useState('');
+    const [clientSecret, setClientSecret] = useState('');
     const [isSignedIn, setIsSignedIn] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [accessToken, setAccessToken] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
-    const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem('google-refresh-token') || '');
+    const [hasStoredSession, setHasStoredSession] = useState(false);
 
     useEffect(() => {
         const initAuth = async () => {
-            if (accessToken) {
-                fetchEvents(accessToken);
-            } else if (refreshToken) {
-                // Try to refresh the token
-                setLoading(true);
-                try {
-                    const tokens = await window.electronAPI.refreshGoogle({ refreshToken, clientId, clientSecret });
-                    if (tokens && tokens.access_token) {
+            if (!window.electronAPI?.getGoogleSession) {
+                return;
+            }
+
+            setLoading(true);
+            try {
+                const session = await window.electronAPI.getGoogleSession();
+                setHasStoredSession(Boolean(session?.hasRefreshToken));
+                setShowAdvanced(Boolean(session?.hasCustomCredentials));
+
+                if (session?.hasRefreshToken) {
+                    const tokens = await window.electronAPI.refreshGoogle();
+                    if (tokens?.access_token) {
                         setAccessToken(tokens.access_token);
                         setIsSignedIn(true);
-                        fetchEvents(tokens.access_token);
-                    } else {
-                        // Refresh failed, clear tokens
-                        handleClearCredentials();
                     }
-                } catch (err) {
-                    console.error("Token refresh failed", err);
-                    // Don't clear immediately, maybe network error? 
-                    // But if it's invalid grant, we should. For now, let's just show error.
-                    // Actually, if refresh fails, we probably need to login again.
-                    // handleClearCredentials(); 
-                } finally {
-                    setLoading(false);
                 }
+            } catch (err) {
+                console.error('Token refresh failed', err);
+                setError('Stored Google session could not be restored. Please sign in again.');
+            } finally {
+                setLoading(false);
             }
         };
+
         initAuth();
-    }, []); // Run once on mount
+    }, []);
 
     const handleLogin = async () => {
         setLoading(true);
         setError('');
 
         try {
-            // Call the main process to handle the OAuth flow
-            // Passing empty object to use defaults in main.js, or custom ones if entered
             const creds = (clientId && clientSecret) ? { clientId, clientSecret } : {};
             const tokens = await window.electronAPI.loginGoogle(creds);
 
-            if (tokens && tokens.access_token) {
+            if (tokens?.access_token) {
                 setAccessToken(tokens.access_token);
                 setIsSignedIn(true);
-
-                if (tokens.refresh_token) {
-                    setRefreshToken(tokens.refresh_token);
-                    localStorage.setItem('google-refresh-token', tokens.refresh_token);
-                }
-
-                // Only save if custom credentials were used
-                if (clientId && clientSecret) {
-                    localStorage.setItem('google-client-id', clientId);
-                    localStorage.setItem('google-client-secret', clientSecret);
-                }
-
-                // Fetch events immediately after login
-                fetchEvents(tokens.access_token);
+                setHasStoredSession(Boolean(tokens.hasRefreshToken));
             }
         } catch (err) {
-            console.error("Login failed", err);
+            console.error('Login failed', err);
             setError('Login failed. Please try again.');
         } finally {
             setLoading(false);
@@ -82,12 +66,13 @@ const GoogleConnect = ({ onEventsLoaded }) => {
         await window.electronAPI.logoutGoogle();
         setIsSignedIn(false);
         setAccessToken('');
-        setRefreshToken('');
-        localStorage.removeItem('google-refresh-token');
+        setHasStoredSession(false);
+        setClientId('');
+        setClientSecret('');
         onEventsLoaded([]);
     };
 
-    const fetchEvents = async (token) => {
+    const fetchEvents = useCallback(async (token) => {
         try {
             const events = await listUpcomingEvents(token);
             const formattedEvents = events.map(event => ({
@@ -100,35 +85,37 @@ const GoogleConnect = ({ onEventsLoaded }) => {
                 resource: event
             }));
             onEventsLoaded(formattedEvents);
+            setError('');
         } catch (err) {
-            console.error("Error fetching events", err);
-            if (err.status === 401 && refreshToken) {
-                // Token might be expired, try refresh?
-                // For simplicity, just show error for now, the initAuth handles initial load.
-                setError('Session expired. Please refresh or sign in again.');
+            console.error('Error fetching events', err);
+            if (err.status === 401 && window.electronAPI?.refreshGoogle) {
+                setError('Session expired. Please sign in again.');
             } else {
                 setError('Failed to fetch events.');
             }
         }
-    };
+    }, [onEventsLoaded]);
 
-    const handleClearCredentials = () => {
-        localStorage.removeItem('google-client-id');
-        localStorage.removeItem('google-client-secret');
-        localStorage.removeItem('google-refresh-token');
-        setClientId('');
-        setClientSecret('');
-        setRefreshToken('');
-        handleLogout();
-    };
+    useEffect(() => {
+        if (!accessToken) {
+            return;
+        }
 
-    if (!isSignedIn && !loading) { // Don't show login form if loading (refreshing)
+        fetchEvents(accessToken);
+    }, [accessToken, fetchEvents]);
+
+    if (!isSignedIn && !loading) {
         return (
             <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: '0.5rem' }}>
                 <h3 style={{ marginTop: 0 }}>Connect Google Calendar</h3>
                 <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                     Sign in to view your upcoming events alongside your deadlines.
                 </p>
+                {hasStoredSession && (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        A stored Google session is available, but it needs a fresh sign-in.
+                    </p>
+                )}
 
                 {showAdvanced && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
@@ -165,7 +152,7 @@ const GoogleConnect = ({ onEventsLoaded }) => {
 
     return (
         <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem', background: 'var(--bg-secondary)', borderRadius: '0.5rem' }}>
-            <span style={{ color: 'var(--accent-success)' }}>● Connected to Google Calendar</span>
+            <span style={{ color: 'var(--accent-success)' }}>Connected to Google Calendar</span>
             <button onClick={handleLogout} className="btn-action" style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}>
                 Sign Out
             </button>
@@ -174,7 +161,7 @@ const GoogleConnect = ({ onEventsLoaded }) => {
                 className="btn-action"
                 style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', background: 'var(--bg-primary)' }}
             >
-                🔄 Refresh
+                Refresh
             </button>
         </div>
     );

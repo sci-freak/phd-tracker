@@ -58,27 +58,25 @@ export default function Login() {
             backgroundColor: '#0f172a',
             color: '#fff'
         }}>
-            {/* Window controls for Electron (frameless window) */}
             {window.electronAPI && (
                 <div style={{
                     position: 'fixed', top: 0, right: 0, display: 'flex', zIndex: 9999,
                     WebkitAppRegion: 'no-drag'
                 }}>
-                    <button onClick={() => window.electronAPI.minimize()} 
+                    <button onClick={() => window.electronAPI.minimize()}
                         style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '1.2rem', width: 46, height: 32, cursor: 'pointer' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>−</button>
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>-</button>
                     <button onClick={() => window.electronAPI.maximize()}
                         style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '1rem', width: 46, height: 32, cursor: 'pointer' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>☐</button>
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>[ ]</button>
                     <button onClick={() => window.electronAPI.close()}
                         style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '1.5rem', width: 46, height: 32, cursor: 'pointer' }}
                         onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = 'white'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}>×</button>
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}>X</button>
                 </div>
             )}
-            {/* Draggable region for Electron */}
             {window.electronAPI && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 140, height: 32, WebkitAppRegion: 'drag', zIndex: 9998 }} />
             )}
@@ -191,7 +189,7 @@ export default function Login() {
                         e.currentTarget.style.color = '#94a3b8';
                     }}
                 >
-                    👤 Continue as Guest
+                    Continue as Guest
                 </button>
 
                 <p style={{ marginTop: '1.5rem', color: '#94a3b8', fontSize: '0.9rem' }}>

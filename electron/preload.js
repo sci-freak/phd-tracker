@@ -5,7 +5,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     maximize: () => ipcRenderer.send('window-maximize'),
     close: () => ipcRenderer.send('window-close'),
     firebaseGoogleLogin: () => ipcRenderer.invoke('auth:firebase-google'),
+    getGoogleSession: () => ipcRenderer.invoke('auth:get-session'),
     loginGoogle: (credentials) => ipcRenderer.invoke('auth:start', credentials),
     logoutGoogle: () => ipcRenderer.invoke('auth:logout'),
-    refreshGoogle: (data) => ipcRenderer.invoke('auth:refresh', data)
+    refreshGoogle: () => ipcRenderer.invoke('auth:refresh')
 });

@@ -2,34 +2,20 @@ import React from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
 import NotesModal from './NotesModal';
 import SearchableSelect from './SearchableSelect';
+import { APPLICATION_STATUSES, getStatusColor } from '@phd-tracker/shared/statuses';
+import { formatDeadlineDate, getDaysUntilDeadline } from '@phd-tracker/shared/dates';
+import { normalizeRequirements } from '@phd-tracker/shared/applications';
 import { getCountryCode } from '../utils/countryFlags';
 import { countries } from '../constants/countries';
-
-const statusColors = {
-    'Not Started': 'var(--text-secondary)',
-    'In Progress': 'var(--accent-primary)',
-    'Submitted': 'var(--accent-secondary)',
-    'Interview': 'var(--accent-warning)',
-    'Accepted': 'var(--accent-success)',
-    'Rejected': 'var(--accent-danger)',
-    'Deadline Missed': 'var(--accent-danger)',
-};
 
 const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, onEditEnd, dragHandleProps }) => {
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedApp, setEditedApp] = React.useState(app);
-    const [editKey, setEditKey] = React.useState(Date.now());
     const [newRequirement, setNewRequirement] = React.useState('');
-    const [showFullNotes, setShowFullNotes] = React.useState(false);
     const [isNotesModalOpen, setIsNotesModalOpen] = React.useState(false);
 
-    // Normalize requirements to ensure it's always an array
     const requirements = React.useMemo(() => {
-        if (Array.isArray(app.requirements)) return app.requirements;
-        if (typeof app.requirements === 'string' && app.requirements.trim()) {
-            return app.requirements.split(',').map(r => r.trim());
-        }
-        return [];
+        return normalizeRequirements(app.requirements);
     }, [app.requirements]);
 
     const requirementOptions = ['TOEFL', 'IELTS', 'GRE', 'GMAT', 'Transcripts', 'SOP', 'CV', 'Personal Statement', '1 LOR', '2 LORs', '3 LORs', '4 LORs'];
@@ -37,7 +23,6 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
     React.useEffect(() => {
         if (startEditing) {
             setIsEditing(true);
-            // Scroll into view
             const element = document.getElementById(`app-card-${app.id}`);
             if (element) {
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -59,16 +44,11 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
 
     const handleEdit = () => {
         setEditedApp(app);
-        setEditKey(Date.now()); // Generate new key to force remount
         setIsEditing(true);
     };
 
     const addRequirement = () => {
-        const currentRequirements = Array.isArray(editedApp.requirements)
-            ? editedApp.requirements
-            : typeof editedApp.requirements === 'string' && editedApp.requirements
-                ? editedApp.requirements.split(',').map(r => r.trim())
-                : [];
+        const currentRequirements = normalizeRequirements(editedApp.requirements);
 
         if (newRequirement && !currentRequirements.includes(newRequirement)) {
             setEditedApp({
@@ -80,47 +60,11 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
     };
 
     const removeRequirement = (req) => {
-        const currentRequirements = Array.isArray(editedApp.requirements)
-            ? editedApp.requirements
-            : typeof editedApp.requirements === 'string' && editedApp.requirements
-                ? editedApp.requirements.split(',').map(r => r.trim())
-                : [];
+        const currentRequirements = normalizeRequirements(editedApp.requirements);
 
         setEditedApp({
             ...editedApp,
             requirements: currentRequirements.filter(r => r !== req)
-        });
-    };
-
-    const formatDate = (dateString) => {
-        if (!dateString) return 'No Deadline';
-        const date = new Date(dateString);
-        const d = String(date.getDate()).padStart(2, '0');
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const y = date.getFullYear();
-        return `${d}-${m}-${y}`;
-    };
-
-    const linkifyText = (text) => {
-        if (!text) return null;
-        const urlRegex = /(https?:\/\/[^\s]+)/g;
-        const parts = text.split(urlRegex);
-
-        return parts.map((part, index) => {
-            if (part.match(urlRegex)) {
-                return (
-                    <a
-                        key={index}
-                        href={part}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}
-                    >
-                        {part}
-                    </a>
-                );
-            }
-            return part;
         });
     };
 
@@ -177,7 +121,6 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     min="1"
                 />
 
-                {/* Requirements Editing */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Requirements</label>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -201,11 +144,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                         </button>
                     </div>
                     {(() => {
-                        const editReqs = Array.isArray(editedApp.requirements)
-                            ? editedApp.requirements
-                            : typeof editedApp.requirements === 'string' && editedApp.requirements
-                                ? editedApp.requirements.split(',').map(r => r.trim())
-                                : [];
+                        const editReqs = normalizeRequirements(editedApp.requirements);
 
                         if (editReqs.length === 0) return null;
 
@@ -239,7 +178,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                                                 lineHeight: 1
                                             }}
                                         >
-                                            ×
+                                            X
                                         </button>
                                     </span>
                                 ))}
@@ -290,7 +229,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                             onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
                             onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                         >
-                            ✏️
+                            Edit
                         </button>
                     </div>
                 </div>
@@ -348,13 +287,13 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                             }}
                             title="Drag to reorder"
                         >
-                            ⋮⋮
+                            ::
                         </div>
                     )}
                     <div>
                         <h3 style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>{app.university}</h3>
                         <p style={{ color: 'var(--accent-primary)', fontSize: '0.9rem' }}>{app.program}</p>
-                        {app.department && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>📚 {app.department}</p>}
+                        {app.department && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Department: {app.department}</p>}
                         {app.country && (
                             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 {countryCode ? (
@@ -365,7 +304,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                                         alt={app.country}
                                         style={{ borderRadius: '2px' }}
                                     />
-                                ) : '🌍'}
+                                ) : 'Globe'}
                                 {app.country}
                             </p>
                         )}
@@ -383,7 +322,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                         }}
                         title="Edit"
                     >
-                        ✏️
+                        Edit
                     </button>
                     <button
                         onClick={() => onDelete(app.id)}
@@ -398,7 +337,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                         }}
                         title="Delete Application"
                     >
-                        &times;
+                        X
                     </button>
                 </div>
             </div>
@@ -411,10 +350,10 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                         rel="noopener noreferrer"
                         style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}
                     >
-                        🔗 Website
+                        Website
                     </a>
                 )}
-                {app.qsRanking && <span>🏆 QS Rank: #{app.qsRanking}</span>}
+                {app.qsRanking && <span>QS Rank: #{app.qsRanking}</span>}
             </div>
 
             {requirements && requirements.length > 0 && (
@@ -445,12 +384,12 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     style={{
                         padding: '0.25rem 0.5rem',
                         fontSize: '0.85rem',
-                        borderColor: statusColors[app.status],
-                        color: statusColors[app.status],
+                        borderColor: getStatusColor(app.status),
+                        color: getStatusColor(app.status),
                         fontWeight: 600,
                     }}
                 >
-                    {Object.keys(statusColors).map(status => (
+                    {APPLICATION_STATUSES.map(status => (
                         <option key={status} value={status}>{status}</option>
                     ))}
                 </select>
@@ -459,10 +398,10 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        Deadline: {formatDate(app.deadline)}
+                        Deadline: {formatDeadlineDate(app.deadline)}
                     </span>
                     {app.deadline && (() => {
-                        const days = Math.ceil((new Date(app.deadline) - new Date()) / (1000 * 60 * 60 * 24));
+                        const days = getDaysUntilDeadline(app.deadline);
                         if (days >= 0 && days <= 7) {
                             return (
                                 <span style={{
@@ -473,7 +412,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                                     alignItems: 'center',
                                     gap: '0.25rem'
                                 }}>
-                                    🔥 {days === 0 ? 'Due Today!' : `${days} days left`}
+                                    {days === 0 ? 'Due Today!' : `${days} days left`}
                                 </span>
                             );
                         }
@@ -502,7 +441,7 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                         onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     >
-                        📎 {app.file.name}
+                        Attachment: {app.file.name}
                     </a>
                 </div>
             )}
@@ -544,8 +483,6 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                 initialNotes={app.notes}
                 title={app.university}
                 onSave={(newNotes) => {
-                    // Create a synthetic event or just call update directly
-                    // We need to call onEdit with the updated app
                     const updatedApp = { ...app, notes: newNotes };
                     onEdit(updatedApp);
                 }}

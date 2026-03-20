@@ -1,15 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Modal } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+    View,
+    Text,
+    TextInput,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    Alert,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform
+} from 'react-native';
+import { doc, getDoc } from 'firebase/firestore';
+import { createApplicationSubmission, createEmptyApplicationDraft, normalizeRequirements } from '@phd-tracker/shared/applications';
+import { formatDeadlineDate, toDateInputValue } from '@phd-tracker/shared/dates';
+import { APPLICATION_STATUSES } from '@phd-tracker/shared/statuses';
 import CountryPicker from '../components/CountryPicker';
 import CustomDatePicker from '../components/CustomDatePicker';
 import { MobileDataService } from '../services/MobileDataService';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 export default function AddEditApplicationScreen({ navigation, route }) {
     const { applicationId } = route.params || {};
-    const isEditing = !!applicationId;
+    const isEditing = Boolean(applicationId);
     const { user } = useAuth();
 
     const [loading, setLoading] = useState(false);
@@ -17,19 +31,7 @@ export default function AddEditApplicationScreen({ navigation, route }) {
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [requirementsList, setRequirementsList] = useState([]);
     const [newRequirement, setNewRequirement] = useState('');
-
-    const [formData, setFormData] = useState({
-        university: '',
-        program: '',
-        department: '',
-        country: '',
-        status: 'Not Started',
-        deadline: '',
-        website: '',
-        qsRanking: '',
-        requirements: [],
-        notes: ''
-    });
+    const [formData, setFormData] = useState(() => createEmptyApplicationDraft());
 
     useEffect(() => {
         if (isEditing) {
@@ -40,47 +42,34 @@ export default function AddEditApplicationScreen({ navigation, route }) {
     const fetchApplication = async () => {
         setLoading(true);
         try {
-            // For fetching a single doc, we might need a method in MobileDataService if we want full abstraction.
-            // But currently MobileDataService only has subscribe, add, update, delete. 
-            // We can read directly if we know the path, but MobileDataService abstracts storage.
-            // Simpler: For Guest, we filter from local list. For Firebase, we getDoc.
-            // Let's add 'getApplication' to MobileDataService or handle it here.
-
-            // To be consistent, let's look at MobileDataService. 
-            // It uses 'getGuestData' internally.
-
-            // Quick fix: Do the logic inline here or add 'getApplication' to service.
-            // Inline is faster for now.
-
             if (user?.isGuest) {
                 const apps = await MobileDataService.fetchGuestData();
-                const app = apps.find(a => a.id === applicationId);
-                if (app) {
-                    setFormData(app);
-                    if (Array.isArray(app.requirements)) {
-                        setRequirementsList(app.requirements);
-                    }
-                } else {
+                const app = apps.find((item) => item.id === applicationId);
+
+                if (!app) {
                     Alert.alert('Error', 'Application not found');
                     navigation.goBack();
+                    return;
                 }
-            } else {
-                const docRef = doc(db, `users/${user.uid}/applications`, applicationId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    setFormData(data);
-                    if (Array.isArray(data.requirements)) {
-                        setRequirementsList(data.requirements);
-                    } else if (typeof data.requirements === 'string' && data.requirements) {
-                        setRequirementsList(data.requirements.split(',').map(r => r.trim()));
-                    }
-                } else {
-                    Alert.alert('Error', 'Application not found');
-                    navigation.goBack();
-                }
+
+                setFormData(app);
+                setRequirementsList(normalizeRequirements(app.requirements));
+                return;
             }
-        } catch (error) {
+
+            const docRef = doc(db, `users/${user.uid}/applications`, applicationId);
+            const docSnap = await getDoc(docRef);
+
+            if (!docSnap.exists()) {
+                Alert.alert('Error', 'Application not found');
+                navigation.goBack();
+                return;
+            }
+
+            const data = docSnap.data();
+            setFormData(data);
+            setRequirementsList(normalizeRequirements(data.requirements));
+        } catch {
             Alert.alert('Error', 'Failed to fetch application details');
         } finally {
             setLoading(false);
@@ -89,21 +78,20 @@ export default function AddEditApplicationScreen({ navigation, route }) {
 
     const onDateChange = (selectedDate) => {
         if (selectedDate) {
-            setFormData({ ...formData, deadline: selectedDate.toISOString().split('T')[0] });
+            setFormData({ ...formData, deadline: toDateInputValue(selectedDate) });
         }
     };
 
     const addRequirement = () => {
-        if (newRequirement.trim()) {
-            setRequirementsList([...requirementsList, newRequirement.trim()]);
-            setNewRequirement('');
-        }
+        const trimmed = newRequirement.trim();
+        if (!trimmed) return;
+
+        setRequirementsList((current) => [...current, trimmed]);
+        setNewRequirement('');
     };
 
-    const removeRequirement = (index) => {
-        const newList = [...requirementsList];
-        newList.splice(index, 1);
-        setRequirementsList(newList);
+    const removeRequirement = (indexToRemove) => {
+        setRequirementsList((current) => current.filter((_, index) => index !== indexToRemove));
     };
 
     const handleSave = async () => {
@@ -114,12 +102,21 @@ export default function AddEditApplicationScreen({ navigation, route }) {
 
         setLoading(true);
         try {
-            const appData = {
-                ...formData,
-                requirements: requirementsList,
-                updatedAt: new Date().toISOString(),
-                createdAt: isEditing ? formData.createdAt : new Date().toISOString()
-            };
+            const appData = createApplicationSubmission(
+                {
+                    ...formData,
+                    requirements: requirementsList
+                },
+                {
+                    existingCreatedAt: isEditing ? formData.createdAt : undefined
+                }
+            );
+
+            if (!appData) {
+                Alert.alert('Error', 'University and Program are required');
+                setLoading(false);
+                return;
+            }
 
             if (isEditing) {
                 await MobileDataService.updateApplication(user, { id: applicationId, ...appData });
@@ -146,7 +143,7 @@ export default function AddEditApplicationScreen({ navigation, route }) {
 
     return (
         <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.container}
             keyboardVerticalOffset={100}
         >
@@ -180,10 +177,7 @@ export default function AddEditApplicationScreen({ navigation, route }) {
                     />
 
                     <Text style={styles.label}>Country</Text>
-                    <TouchableOpacity
-                        style={styles.input}
-                        onPress={() => setShowCountryPicker(true)}
-                    >
+                    <TouchableOpacity style={styles.input} onPress={() => setShowCountryPicker(true)}>
                         <Text style={{ color: formData.country ? '#fff' : '#64748b' }}>
                             {formData.country || 'Select Country...'}
                         </Text>
@@ -218,7 +212,7 @@ export default function AddEditApplicationScreen({ navigation, route }) {
 
                     <Text style={styles.label}>Status</Text>
                     <View style={styles.statusContainer}>
-                        {['Not Started', 'In Progress', 'Submitted', 'Accepted', 'Rejected'].map((status) => (
+                        {APPLICATION_STATUSES.map((status) => (
                             <TouchableOpacity
                                 key={status}
                                 style={[
@@ -227,10 +221,14 @@ export default function AddEditApplicationScreen({ navigation, route }) {
                                 ]}
                                 onPress={() => setFormData({ ...formData, status })}
                             >
-                                <Text style={[
-                                    styles.statusText,
-                                    formData.status === status && styles.statusTextActive
-                                ]}>{status}</Text>
+                                <Text
+                                    style={[
+                                        styles.statusText,
+                                        formData.status === status && styles.statusTextActive
+                                    ]}
+                                >
+                                    {status}
+                                </Text>
                             </TouchableOpacity>
                         ))}
                     </View>
@@ -238,12 +236,10 @@ export default function AddEditApplicationScreen({ navigation, route }) {
                     <Text style={styles.label}>Deadline</Text>
                     <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.input}>
                         <Text style={{ color: formData.deadline ? '#fff' : '#64748b' }}>
-                            {formData.deadline ? (() => {
-                                const [y, m, d] = formData.deadline.split('-');
-                                return `${d}-${m}-${y}`;
-                            })() : 'DD-MM-YYYY'}
+                            {formData.deadline ? formatDeadlineDate(formData.deadline, 'DD-MM-YYYY') : 'DD-MM-YYYY'}
                         </Text>
                     </TouchableOpacity>
+
                     <CustomDatePicker
                         visible={showDatePicker}
                         onClose={() => setShowDatePicker(false)}
@@ -253,24 +249,25 @@ export default function AddEditApplicationScreen({ navigation, route }) {
 
                     <Text style={styles.label}>Requirements</Text>
                     <View style={{ marginBottom: 20 }}>
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <View style={styles.requirementInputRow}>
                             <TextInput
-                                style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                                style={[styles.input, styles.requirementInput]}
                                 value={newRequirement}
                                 onChangeText={setNewRequirement}
                                 placeholder="Add requirement"
                                 placeholderTextColor="#64748b"
                             />
                             <TouchableOpacity onPress={addRequirement} style={styles.addButton}>
-                                <Text style={{ color: '#fff', fontSize: 24 }}>+</Text>
+                                <Text style={styles.addButtonText}>+</Text>
                             </TouchableOpacity>
                         </View>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+
+                        <View style={styles.requirementBadges}>
                             {requirementsList.map((req, index) => (
-                                <View key={index} style={styles.badge}>
-                                    <Text style={{ color: '#fff' }}>{req}</Text>
+                                <View key={`${req}-${index}`} style={styles.badge}>
+                                    <Text style={styles.badgeText}>{req}</Text>
                                     <TouchableOpacity onPress={() => removeRequirement(index)}>
-                                        <Text style={{ color: '#ffadad', marginLeft: 6, fontWeight: 'bold' }}>×</Text>
+                                        <Text style={styles.badgeRemove}>X</Text>
                                     </TouchableOpacity>
                                 </View>
                             ))}
@@ -356,6 +353,47 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
     },
+    requirementInputRow: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    requirementInput: {
+        flex: 1,
+        marginBottom: 0,
+    },
+    addButton: {
+        backgroundColor: '#3b82f6',
+        borderRadius: 8,
+        width: 50,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    addButtonText: {
+        color: '#fff',
+        fontSize: 24,
+    },
+    requirementBadges: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 10,
+    },
+    badge: {
+        backgroundColor: '#334155',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 20,
+    },
+    badgeText: {
+        color: '#fff',
+    },
+    badgeRemove: {
+        color: '#ffadad',
+        marginLeft: 6,
+        fontWeight: 'bold',
+    },
     saveButton: {
         backgroundColor: '#3b82f6',
         padding: 16,
@@ -368,20 +406,5 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 18,
         fontWeight: 'bold',
-    },
-    addButton: {
-        backgroundColor: '#3b82f6',
-        borderRadius: 8,
-        width: 50,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    badge: {
-        backgroundColor: '#334155',
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 20,
     }
 });

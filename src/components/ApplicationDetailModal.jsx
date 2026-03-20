@@ -1,33 +1,12 @@
 import React from 'react';
+import MarkdownRenderer from './MarkdownRenderer';
+import { formatReadableDate, formatReadableTime } from '@phd-tracker/shared/dates';
 
 const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
     if (!event) return null;
 
     const app = event.resource || {};
     const isGoogleEvent = event.type === 'google';
-
-    const formatDate = (date) => {
-        try {
-            if (!date) return 'No Date';
-            const d = new Date(date);
-            if (isNaN(d.getTime())) return 'Invalid Date';
-            return d.toLocaleDateString();
-        } catch (e) {
-            return 'Error Date';
-        }
-    };
-
-    const formatTime = (date, allDay) => {
-        try {
-            if (allDay) return 'All Day';
-            if (!date) return '';
-            const d = new Date(date);
-            if (isNaN(d.getTime())) return '';
-            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } catch (e) {
-            return '';
-        }
-    };
 
     return (
         <div style={{
@@ -69,7 +48,7 @@ const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
                         cursor: 'pointer'
                     }}
                 >
-                    ×
+                    X
                 </button>
 
                 <h2 style={{ marginTop: 0, color: 'var(--text-primary)', paddingRight: '2rem' }}>
@@ -90,8 +69,8 @@ const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
                     </span>
 
                     <div style={{ display: 'flex', gap: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-                        <span>📅 {formatDate(event.start)}</span>
-                        <span>⏰ {formatTime(event.start, event.allDay)}</span>
+                        <span>Date: {formatReadableDate(event.start)}</span>
+                        <span>Time: {formatReadableTime(event.start, event.allDay)}</span>
                     </div>
                 </div>
 
@@ -154,8 +133,9 @@ const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
                                         fontSize: '0.9rem',
                                         lineHeight: '1.5'
                                     }}
-                                    dangerouslySetInnerHTML={{ __html: app.notes }}
-                                />
+                                >
+                                    <MarkdownRenderer text={app.notes} />
+                                </div>
                             </div>
                         )}
 
@@ -168,7 +148,7 @@ const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
                                 className="btn-action"
                                 style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                             >
-                                ✏️ Edit Application
+                                Edit Application
                             </button>
                         </div>
                     </div>

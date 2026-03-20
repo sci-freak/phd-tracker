@@ -1,0 +1,14 @@
+{
+  "name": "@phd-tracker/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./countries": "./src/countries.js",
+    "./countryFlags": "./src/countryFlags.js",
+    "./applications": "./src/applications.js",
+    "./statuses": "./src/statuses.js",
+    "./dates": "./src/dates.js",
+    "./imports": "./src/imports.js"
+  }
+}

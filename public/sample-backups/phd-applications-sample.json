@@ -1,0 +1,36 @@
+[
+  {
+    "university": "Massachusetts Institute of Technology",
+    "program": "Computer Science",
+    "department": "EECS",
+    "country": "United States of America",
+    "status": "In Progress",
+    "deadline": "2026-12-01",
+    "website": "https://www.mit.edu",
+    "qsRanking": "1",
+    "requirements": [
+      "TOEFL",
+      "GRE",
+      "SOP"
+    ],
+    "notes": "Reach out to systems faculty.",
+    "sortOrder": 0
+  },
+  {
+    "university": "University of Cambridge",
+    "program": "Physics",
+    "department": "Department of Physics",
+    "country": "United Kingdom",
+    "status": "Submitted",
+    "deadline": "2026-11-15",
+    "website": "https://www.cam.ac.uk",
+    "qsRanking": "2",
+    "requirements": [
+      "IELTS",
+      "Transcripts",
+      "2 LORs"
+    ],
+    "notes": "Application fee already paid.",
+    "sortOrder": 1
+  }
+]

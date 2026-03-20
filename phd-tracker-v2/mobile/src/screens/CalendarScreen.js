@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, SectionList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
+import { compareApplicationsByDeadline } from '@phd-tracker/shared/applications';
+import { getStatusColor } from '@phd-tracker/shared/statuses';
 import { db, auth } from '../config/firebase';
 
 export default function CalendarScreen({ navigation }) {
@@ -27,7 +29,7 @@ export default function CalendarScreen({ navigation }) {
 
             // Process for SectionList
             // 1. Sort by date
-            apps.sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+            apps.sort((a, b) => compareApplicationsByDeadline(a, b, 'asc'));
 
             // 2. Group by Month
             const grouped = {};
@@ -74,16 +76,6 @@ export default function CalendarScreen({ navigation }) {
                 </View>
             </TouchableOpacity>
         );
-    };
-
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'Accepted': return '#22c55e';
-            case 'Rejected': return '#ef4444';
-            case 'Submitted': return '#3b82f6';
-            case 'In Progress': return '#eab308';
-            default: return '#64748b';
-        }
     };
 
     if (loading) {

@@ -1,5 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, onSnapshot, addDoc, deleteDoc, updateDoc, doc, setDoc, writeBatch, query } from 'firebase/firestore';
+import {
+    createImportedApplications,
+    createFirestorePayload,
+    createLocalApplication,
+    normalizeImportedApplication,
+    sortApplications
+} from '@phd-tracker/shared/applications';
 import { db } from '../config/firebase';
 
 const GUEST_KEY = 'phd-app-guest-data';
@@ -26,44 +33,44 @@ const saveGuestData = async (data) => {
 export const MobileDataService = {
     subscribeToApplications: (user, onUpdate) => {
         if (!user || user.isGuest) {
-            // Guest Mode
-            // Initial load
-            getGuestData().then(data => onUpdate(data));
-
-            // Polling approach for simplicity since AsyncStorage doesn't have listeners
-            // or we could rely on UI to trigger re-fetches. 
-            // For a robust experience, we can expose a 'refresh' method or just poll.
-            // Let's polling every 2 seconds for now to simulate real-time feels, 
-            // but in reality, screens will just call CRUD methods which will trigger updates.
-            // But if multiple screens need sync, polling is easiest quick fix.
+            getGuestData().then(data => onUpdate(sortApplications(data)));
 
             const interval = setInterval(() => {
-                getGuestData().then(data => onUpdate(data));
+                getGuestData().then(data => onUpdate(sortApplications(data)));
             }, 2000);
 
             return () => clearInterval(interval);
         } else {
-            // Firestore Mode
             const q = query(collection(db, `users/${user.uid}/applications`));
             return onSnapshot(q, (querySnapshot) => {
                 const apps = [];
                 querySnapshot.forEach((doc) => {
                     apps.push({ ...doc.data(), id: doc.id });
                 });
-                onUpdate(apps);
+                onUpdate(sortApplications(apps));
             });
         }
     },
 
     addApplication: async (user, app) => {
+        const normalizedApp = normalizeImportedApplication(app);
+        const appPayload = normalizedApp ?? {
+            ...app,
+            sortOrder: typeof app?.sortOrder === 'number' ? app.sortOrder : undefined
+        };
+
         if (!user || user.isGuest) {
             const apps = await getGuestData();
-            const newApp = { ...app, id: Date.now().toString() };
+            const newApp = createLocalApplication(appPayload, {
+                id: Date.now().toString(),
+                fallbackSortOrder: apps.length
+            });
             apps.push(newApp);
             await saveGuestData(apps);
             return newApp;
         } else {
-            return addDoc(collection(db, `users/${user.uid}/applications`), app);
+            const payload = createFirestorePayload(appPayload, 0);
+            return addDoc(collection(db, `users/${user.uid}/applications`), payload);
         }
     },
 
@@ -115,11 +122,44 @@ export const MobileDataService = {
     batchAdd: async (user, apps) => {
         if (!user || user.isGuest) return;
         const batch = writeBatch(db);
-        apps.forEach(app => {
+        apps.forEach((app, index) => {
             const newRef = doc(collection(db, `users/${user.uid}/applications`));
-            const { id, ...data } = app;
-            batch.set(newRef, data);
+            batch.set(newRef, createFirestorePayload(app, index));
         });
         return batch.commit();
+    },
+
+    importApplications: async (user, apps) => {
+        if (!Array.isArray(apps) || apps.length === 0) {
+            return [];
+        }
+
+        const normalizedApps = apps
+            .map(normalizeImportedApplication)
+            .filter(Boolean);
+
+        if (normalizedApps.length === 0) {
+            throw new Error('No valid applications found in import');
+        }
+
+        if (!user || user.isGuest) {
+            const existingApps = await getGuestData();
+            const importedApps = createImportedApplications(normalizedApps, {
+                startingSortOrder: existingApps.length,
+                idFactory: () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+            });
+
+            await saveGuestData([...existingApps, ...importedApps]);
+            return importedApps;
+        }
+
+        const batch = writeBatch(db);
+        normalizedApps.forEach((app, index) => {
+            const newRef = doc(collection(db, `users/${user.uid}/applications`));
+            batch.set(newRef, createFirestorePayload(app, index));
+        });
+
+        await batch.commit();
+        return normalizedApps;
     }
 };

@@ -13,12 +13,10 @@ import Papa from 'papaparse';
 import { ThemeProvider } from './context/ThemeContext';
 import { useAuth } from './context/AuthContext';
 import { DataService } from './services/DataService';
-import { db } from './config/firebase';
-import {
-  collection,
-  doc,
-  writeBatch
-} from 'firebase/firestore';
+import { compareApplicationsByDeadline, compareApplicationsByStatus } from '@phd-tracker/shared/applications';
+import { getBackupDateStamp } from '@phd-tracker/shared/dates';
+import { mapImportedCsvRow, parseImportedJson } from '@phd-tracker/shared/imports';
+import { STATUS_FILTER_OPTIONS } from '@phd-tracker/shared/statuses';
 
 import { countries } from './constants/countries';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -34,7 +32,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [countryFilter, setCountryFilter] = useState('All');
-  const [view, setView] = useState('list'); // 'list' or 'calendar'
+  const [view, setView] = useState('list');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [editingAppId, setEditingAppId] = useState(null);
   const [sortOption, setSortOption] = useState('manual');
@@ -53,15 +51,12 @@ function App() {
     })
   );
 
-  // Firestore/Data Sync & Merge Logic
   useEffect(() => {
-    // If we have a user (Guest or Real), subscribe
     if (!currentUser) {
       setApplications([]);
       return;
     }
 
-    // Check for guest data when a REAL user logs in
     if (!currentUser.isGuest) {
       const guestData = DataService.fetchGuestData();
       if (guestData.length > 0) {
@@ -87,22 +82,18 @@ function App() {
       setGuestDataToMerge([]);
       alert('Sync complete!');
     } catch (e) {
-      console.error("Merge failed", e);
-      alert("Failed to merge data. Please try again.");
+      console.error('Merge failed', e);
+      alert('Failed to merge data. Please try again.');
     }
   };
 
   const handleMergeDiscard = () => {
-    if (confirm("Keep local guest data separate? You can access it again by logging out and continuing as Guest.")) {
-      // Do NOT clear guest data.
+    if (confirm('Keep local guest data separate? You can access it again by logging out and continuing as Guest.')) {
       setConflictModalOpen(false);
-
-      // We might want to clear the 'guestDataToMerge' state so the modal specific to this login session closes.
       setGuestDataToMerge([]);
     }
   };
 
-  // Map applications to calendar events
   const calendarEvents = applications
     .filter(app => app.deadline)
     .map(app => {
@@ -129,11 +120,10 @@ function App() {
 
       const eventKey = e.key?.toLowerCase();
       const eventCtrl = e.ctrlKey;
-      const eventMeta = e.metaKey; // Cmd
+      const eventMeta = e.metaKey;
       const eventAlt = e.altKey;
       const eventShift = e.shiftKey;
 
-      // Check modifiers
       const modifiersMatch =
         (hasCtrl === eventCtrl) &&
         (hasCmd === eventMeta) &&
@@ -145,7 +135,6 @@ function App() {
         setIsSearchOpen(true);
       }
 
-      // Fail-safe Sign Out: Ctrl+Shift+L
       if (e.ctrlKey && e.shiftKey && e.key?.toLowerCase() === 'l') {
         e.preventDefault();
         signOut();
@@ -154,31 +143,46 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shortcut]);
+  }, [shortcut, signOut]);
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
 
-    if (active.id !== over.id) {
-      setApplications((items) => {
-        let currentItems = [...items];
-        if (sortOption !== 'manual') {
-          // simpler sort reset
-        }
-        const oldIndex = currentItems.findIndex((item) => item.id === active.id);
-        const newIndex = currentItems.findIndex((item) => item.id === over.id);
-        return arrayMove(currentItems, oldIndex, newIndex);
-      });
-      setSortOption('manual');
+    if (!over || active.id === over.id) {
+      return;
     }
+
+    const currentItems = [...applications];
+    const oldIndex = currentItems.findIndex((item) => item.id === active.id);
+    const newIndex = currentItems.findIndex((item) => item.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
+
+    const reorderedItems = arrayMove(currentItems, oldIndex, newIndex).map((item, index) => ({
+      ...item,
+      sortOrder: index
+    }));
+
+    setApplications(reorderedItems);
+    setSortOption('manual');
+
+    DataService.reorderApplications(currentUser, reorderedItems).catch((error) => {
+      console.error('Error saving manual order: ', error);
+      alert('Failed to save manual order');
+    });
   };
 
   const addApplication = async (app) => {
     try {
-      await DataService.addApplication(currentUser, app);
+      await DataService.addApplication(currentUser, {
+        ...app,
+        sortOrder: applications.length
+      });
     } catch (e) {
-      console.error("Error adding document: ", e);
-      alert("Failed to save application");
+      console.error('Error adding document: ', e);
+      alert('Failed to save application');
     }
   };
 
@@ -186,7 +190,7 @@ function App() {
     try {
       await DataService.deleteApplication(currentUser, id);
     } catch (e) {
-      console.error("Error deleting document: ", e);
+      console.error('Error deleting document: ', e);
     }
   };
 
@@ -194,7 +198,7 @@ function App() {
     try {
       await DataService.updateStatus(currentUser, id, newStatus);
     } catch (e) {
-      console.error("Error updating status: ", e);
+      console.error('Error updating status: ', e);
     }
   };
 
@@ -202,17 +206,17 @@ function App() {
     try {
       await DataService.updateApplication(currentUser, updatedApp);
     } catch (e) {
-      console.error("Error updating application: ", e);
+      console.error('Error updating application: ', e);
     }
   };
 
   const exportData = () => {
     const dataStr = JSON.stringify(applications, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
+    const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `phd-applications-${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `phd-applications-${getBackupDateStamp()}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -229,8 +233,8 @@ function App() {
 
       if (file.name.endsWith('.json')) {
         try {
-          importedApps = JSON.parse(content);
-        } catch (err) {
+          importedApps = parseImportedJson(content);
+        } catch {
           alert('Invalid JSON file');
           return;
         }
@@ -238,14 +242,7 @@ function App() {
         Papa.parse(content, {
           header: true,
           complete: (results) => {
-            importedApps = results.data.map(row => ({
-              university: row['University'] || row['Name'] || 'Unknown',
-              program: row['Program'] || 'PhD',
-              deadline: row['Deadline'] || '',
-              status: row['Status'] || 'Not Started',
-              notes: row['Notes'] || '',
-              files: []
-            })).filter(app => app.university !== 'Unknown');
+            importedApps = results.data.map(mapImportedCsvRow).filter(Boolean);
             processImports(importedApps);
           }
         });
@@ -258,23 +255,17 @@ function App() {
   };
 
   const processImports = async (apps) => {
-    if (!confirm(`Import ${apps.length} applications? This will add them to your cloud account.`)) return;
-
-    const batch = writeBatch(db);
-    apps.forEach(app => {
-      const newRef = doc(collection(db, `users/${currentUser.uid}/applications`));
-      const { id, ...appData } = app;
-      batch.set(newRef, appData);
-    });
+    const destination = currentUser?.isGuest ? 'local guest storage' : 'your cloud account';
+    if (!confirm(`Import ${apps.length} applications? This will add them to ${destination}.`)) return;
 
     try {
-      await batch.commit();
+      await DataService.importApplications(currentUser, apps);
       alert('Import successful!');
     } catch (e) {
-      console.error("Import failed", e);
-      alert("Import failed");
+      console.error('Import failed', e);
+      alert('Import failed');
     }
-  }
+  };
 
   const filteredApplications = applications.filter(app => {
     if (!app) return false;
@@ -288,16 +279,14 @@ function App() {
     return matchesSearch && matchesStatus && matchesCountry;
   }).sort((a, b) => {
     if (sortOption === 'deadline') {
-      const dateA = a.deadline ? new Date(a.deadline) : new Date('9999-12-31');
-      const dateB = b.deadline ? new Date(b.deadline) : new Date('9999-12-31');
-      return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+      return compareApplicationsByDeadline(a, b, sortDirection);
     }
     if (sortOption === 'status') {
-      return sortDirection === 'asc'
-        ? a.status.localeCompare(b.status)
-        : b.status.localeCompare(a.status);
+      return compareApplicationsByStatus(a, b, sortDirection);
     }
-    return 0;
+    const orderA = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+    const orderB = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+    return orderA - orderB;
   });
 
   const uniqueCountries = ['All', ...new Set(applications.map(app => app.country).filter(Boolean))];
@@ -331,13 +320,13 @@ function App() {
               </span>
             )}
             <button onClick={() => setIsSettingsOpen(true)} className="btn-action">
-              <span>⚙️</span> Settings
+              <span>[Settings]</span> Settings
             </button>
             <button onClick={exportData} className="btn-action">
-              <span>💾</span> Export Backup
+              <span>[Export]</span> Export Backup
             </button>
             <label className="btn-action">
-              <span>📥</span> Import Data
+              <span>[Import]</span> Import Data
               <input
                 type="file"
                 accept=".json,.csv"
@@ -345,9 +334,9 @@ function App() {
                 style={{ display: 'none' }}
               />
             </label>
-            <button 
-              onClick={signOut} 
-              className="btn-action" 
+            <button
+              onClick={signOut}
+              className="btn-action"
               style={{ borderColor: '#ef4444', color: '#ef4444' }}
             >
               Sign Out
@@ -363,7 +352,7 @@ function App() {
                 color: view === 'list' ? '#fff' : 'var(--text-secondary)'
               }}
             >
-              📋 List View
+              List View
             </button>
             <button
               onClick={() => setView('calendar')}
@@ -373,7 +362,7 @@ function App() {
                 color: view === 'calendar' ? '#fff' : 'var(--text-secondary)'
               }}
             >
-              📅 Calendar
+              Calendar
             </button>
           </div>
         </div>
@@ -420,14 +409,11 @@ function App() {
                   onChange={(e) => setStatusFilter(e.target.value)}
                   style={{ width: '150px' }}
                 >
-                  <option value="All">All Statuses</option>
-                  <option value="Not Started">Not Started</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Submitted">Submitted</option>
-                  <option value="Interview">Interview</option>
-                  <option value="Accepted">Accepted</option>
-                  <option value="Rejected">Rejected</option>
-                  <option value="Deadline Missed">Deadline Missed</option>
+                  {STATUS_FILTER_OPTIONS.map(status => (
+                    <option key={status} value={status}>
+                      {status === 'All' ? 'All Statuses' : status}
+                    </option>
+                  ))}
                 </select>
                 <select
                   value={countryFilter}
@@ -456,7 +442,7 @@ function App() {
                     style={{ padding: '0.5rem', minWidth: '40px', justifyContent: 'center' }}
                     title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
                   >
-                    {sortDirection === 'asc' ? '⬆️' : '⬇️'}
+                    {sortDirection === 'asc' ? 'Up' : 'Down'}
                   </button>
                 )}
               </div>

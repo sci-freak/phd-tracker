@@ -8,13 +8,12 @@ import GoogleConnect from './GoogleConnect';
 const localizer = momentLocalizer(moment);
 
 const CalendarView = ({ events = [], onSelectEvent }) => {
-    const { theme } = useTheme();
+    useTheme();
     const [googleEvents, setGoogleEvents] = useState([]);
 
     const allEvents = [...events, ...googleEvents];
 
-    // Custom styling for calendar events
-    const eventStyleGetter = (event, start, end, isSelected) => {
+    const eventStyleGetter = (event) => {
         let backgroundColor = 'var(--accent-primary)';
         if (event.type === 'deadline') backgroundColor = 'var(--accent-danger)';
         if (event.type === 'interview') backgroundColor = 'var(--accent-success)';
@@ -43,7 +42,7 @@ const CalendarView = ({ events = [], onSelectEvent }) => {
             marginTop: '2rem'
         }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h2 style={{ margin: 0, color: 'var(--text-primary)' }}>📅 Application Calendar</h2>
+                <h2 style={{ margin: 0, color: 'var(--text-primary)' }}>Application Calendar</h2>
             </div>
 
             <GoogleConnect onEventsLoaded={setGoogleEvents} />

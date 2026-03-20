@@ -8,13 +8,6 @@ const MarkdownRenderer = ({ text }) => {
         let currentIndex = 0;
         let key = 0;
 
-        // Regex patterns for markdown
-        const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
-        const boldPattern = /\*\*([^*]+)\*\*/g;
-        const italicPattern = /\*([^*]+)\*/g;
-        const urlPattern = /(https?:\/\/[^\s]+)/g;
-
-        // Combine all patterns
         const combinedPattern = /(\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*|(https?:\/\/[^\s]+))/g;
 
         let match;

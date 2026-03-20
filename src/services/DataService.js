@@ -1,5 +1,13 @@
 import { db } from '../config/firebase';
-import { collection, onSnapshot, addDoc, deleteDoc, updateDoc, doc, setDoc, writeBatch, getDocs, query } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, deleteDoc, updateDoc, doc, setDoc, writeBatch, query } from 'firebase/firestore';
+import {
+    applyManualSortOrder,
+    createFirestorePayload,
+    createImportedApplications,
+    createLocalApplication,
+    normalizeImportedApplication,
+    sortApplications
+} from '@phd-tracker/shared/applications';
 
 const GUEST_KEY = 'phd-app-guest-data';
 const LEGACY_KEY = 'phd-applications';
@@ -16,20 +24,13 @@ const saveGuestData = (data) => {
 export const DataService = {
     subscribeToApplications: (user, onUpdate) => {
         if (!user || user.isGuest) {
-            // Guest Mode: Poll or just return initial and rely on manual triggers? 
-            // Better: Return a function to force update? 
-            // For simplicity in this architecture, we will just call onUpdate immediately 
-            // and rely on the UI to call proper methods that update the state.
-            // But App.jsx expects a listener. We can simulate it.
-            const initialData = getGuestData();
+            const initialData = sortApplications(getGuestData());
             onUpdate(initialData);
 
-            // We listen to 'storage' events for multi-tab sync
             const handleStorageChange = () => {
-                onUpdate(getGuestData());
+                onUpdate(sortApplications(getGuestData()));
             };
             window.addEventListener('storage', handleStorageChange);
-            // Also custom event for same-tab updates
             window.addEventListener('guest-data-changed', handleStorageChange);
 
             return () => {
@@ -37,14 +38,13 @@ export const DataService = {
                 window.removeEventListener('guest-data-changed', handleStorageChange);
             };
         } else {
-            // Firestore Mode
             const q = query(collection(db, `users/${user.uid}/applications`));
             return onSnapshot(q, (querySnapshot) => {
                 const apps = [];
-                querySnapshot.forEach((doc) => {
-                    apps.push({ ...doc.data(), id: doc.id });
+                querySnapshot.forEach((docSnapshot) => {
+                    apps.push({ ...docSnapshot.data(), id: docSnapshot.id });
                 });
-                onUpdate(apps);
+                onUpdate(sortApplications(apps));
             });
         }
     },
@@ -52,13 +52,17 @@ export const DataService = {
     addApplication: async (user, app) => {
         if (!user || user.isGuest) {
             const apps = getGuestData();
-            const newApp = { ...app, id: Date.now().toString() };
+            const newApp = createLocalApplication(app, {
+                id: Date.now().toString(),
+                fallbackSortOrder: apps.length
+            });
             apps.push(newApp);
             saveGuestData(apps);
             window.dispatchEvent(new Event('guest-data-changed'));
             return newApp;
         } else {
-            return addDoc(collection(db, `users/${user.uid}/applications`), app);
+            const payload = createFirestorePayload(app, 0);
+            return addDoc(collection(db, `users/${user.uid}/applications`), payload);
         }
     },
 
@@ -102,7 +106,6 @@ export const DataService = {
         }
     },
 
-    // Utilities for Merge Flow
     fetchGuestData: () => getGuestData(),
 
     clearGuestData: () => {
@@ -112,13 +115,70 @@ export const DataService = {
     },
 
     batchAdd: async (user, apps) => {
-        if (!user || user.isGuest) return; // Shouldn't happen in merge flow
+        if (!user || user.isGuest) return;
         const batch = writeBatch(db);
-        apps.forEach(app => {
+        apps.forEach((app, index) => {
             const newRef = doc(collection(db, `users/${user.uid}/applications`));
-            const { id, ...data } = app; // Drop ID to let Firestore generate new one, or keep? Better new.
-            batch.set(newRef, data);
+            batch.set(newRef, createFirestorePayload(app, index));
         });
         return batch.commit();
+    },
+
+    importApplications: async (user, apps) => {
+        if (!Array.isArray(apps) || apps.length === 0) {
+            return [];
+        }
+
+        const normalizedApps = apps
+            .map(normalizeImportedApplication)
+            .filter(Boolean);
+
+        if (normalizedApps.length === 0) {
+            throw new Error('No valid applications found in import');
+        }
+
+        if (!user || user.isGuest) {
+            const existingApps = getGuestData();
+            const importedApps = createImportedApplications(normalizedApps, {
+                startingSortOrder: existingApps.length,
+                idFactory: () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+            });
+
+            saveGuestData([...existingApps, ...importedApps]);
+            window.dispatchEvent(new Event('guest-data-changed'));
+            return importedApps;
+        }
+
+        const batch = writeBatch(db);
+        normalizedApps.forEach((app, index) => {
+            const newRef = doc(collection(db, `users/${user.uid}/applications`));
+            batch.set(newRef, createFirestorePayload(app, index));
+        });
+
+        await batch.commit();
+        return normalizedApps;
+    },
+
+    reorderApplications: async (user, orderedApps) => {
+        if (!Array.isArray(orderedApps)) {
+            return [];
+        }
+
+        const reorderedApps = applyManualSortOrder(orderedApps);
+
+        if (!user || user.isGuest) {
+            saveGuestData(reorderedApps);
+            window.dispatchEvent(new Event('guest-data-changed'));
+            return reorderedApps;
+        }
+
+        const batch = writeBatch(db);
+        reorderedApps.forEach(({ id, sortOrder }) => {
+            if (!id) return;
+            batch.update(doc(db, `users/${user.uid}/applications`, id), { sortOrder });
+        });
+
+        await batch.commit();
+        return reorderedApps;
     }
 };

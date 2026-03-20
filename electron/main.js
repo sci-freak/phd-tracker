@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { OAuth2Client } = require('google-auth-library');
 const http = require('http');
@@ -7,6 +8,85 @@ const url = require('url');
 let mainWindow;
 let oauth2Client;
 let server;
+
+const GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID_HERE';
+const GOOGLE_CLIENT_SECRET = process.env.VITE_GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET_HERE';
+
+const getSessionFilePath = () => path.join(app.getPath('userData'), 'google-calendar-auth.json');
+
+const encryptValue = (value) => {
+    if (!value) return null;
+    if (safeStorage.isEncryptionAvailable()) {
+        return {
+            encrypted: true,
+            value: safeStorage.encryptString(value).toString('base64')
+        };
+    }
+
+    return {
+        encrypted: false,
+        value
+    };
+};
+
+const decryptValue = (payload) => {
+    if (!payload || !payload.value) return '';
+    if (!payload.encrypted) return payload.value;
+
+    try {
+        return safeStorage.decryptString(Buffer.from(payload.value, 'base64'));
+    } catch (error) {
+        console.error('Failed to decrypt Google session value', error);
+        return '';
+    }
+};
+
+const loadGoogleSession = () => {
+    try {
+        const sessionFile = getSessionFilePath();
+        if (!fs.existsSync(sessionFile)) {
+            return null;
+        }
+
+        const raw = fs.readFileSync(sessionFile, 'utf8');
+        const parsed = JSON.parse(raw);
+
+        return {
+            refreshToken: decryptValue(parsed.refreshToken),
+            clientId: decryptValue(parsed.clientId),
+            clientSecret: decryptValue(parsed.clientSecret)
+        };
+    } catch (error) {
+        console.error('Failed to load Google session', error);
+        return null;
+    }
+};
+
+const saveGoogleSession = ({ refreshToken, clientId, clientSecret }) => {
+    const payload = {
+        refreshToken: encryptValue(refreshToken),
+        clientId: encryptValue(clientId),
+        clientSecret: encryptValue(clientSecret)
+    };
+
+    fs.writeFileSync(getSessionFilePath(), JSON.stringify(payload, null, 2), 'utf8');
+};
+
+const clearGoogleSession = () => {
+    const sessionFile = getSessionFilePath();
+    if (fs.existsSync(sessionFile)) {
+        fs.unlinkSync(sessionFile);
+    }
+};
+
+const getStoredCredentials = () => {
+    const storedSession = loadGoogleSession();
+    return {
+        clientId: storedSession?.clientId || GOOGLE_CLIENT_ID,
+        clientSecret: storedSession?.clientSecret || GOOGLE_CLIENT_SECRET,
+        refreshToken: storedSession?.refreshToken || ''
+    };
+};
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -20,22 +100,18 @@ function createWindow() {
         }
     });
 
-    // In development, load from Vite dev server
     if (process.env.NODE_ENV === 'development') {
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools();
     } else {
-        // In production, load the built index.html
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
     }
 
-    // Handle external links - allow Firebase auth popups to open within Electron
-    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        // Allow Firebase auth and Google sign-in popups to open as Electron windows
-        if (url.includes('firebaseapp.com') || 
-            url.includes('accounts.google.com') || 
-            url.includes('googleapis.com')) {
-            return { 
+    mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+        if (targetUrl.includes('firebaseapp.com') ||
+            targetUrl.includes('accounts.google.com') ||
+            targetUrl.includes('googleapis.com')) {
+            return {
                 action: 'allow',
                 overrideBrowserWindowOptions: {
                     width: 500,
@@ -48,15 +124,13 @@ function createWindow() {
                 }
             };
         }
-        // All other external links open in the system browser
-        if (url.startsWith('https:') || url.startsWith('http:')) {
-            shell.openExternal(url);
+        if (targetUrl.startsWith('https:') || targetUrl.startsWith('http:')) {
+            shell.openExternal(targetUrl);
         }
         return { action: 'deny' };
     });
 }
 
-// IPC handlers for window controls
 ipcMain.on('window-minimize', () => {
     if (mainWindow) mainWindow.minimize();
 });
@@ -75,9 +149,9 @@ ipcMain.on('window-close', () => {
     if (mainWindow) mainWindow.close();
 });
 
-// --- Firebase Google Auth for Electron ---
 ipcMain.handle('auth:firebase-google', async () => {
     return new Promise((resolve, reject) => {
+        let resolved = false;
         const authWindow = new BrowserWindow({
             width: 500,
             height: 700,
@@ -88,7 +162,6 @@ ipcMain.handle('auth:firebase-google', async () => {
             }
         });
 
-        // Firebase Web Client ID from the Google Cloud Console
         const WEB_CLIENT_ID = '852501777550-7vlcc4vq4pn4ar50in5qg6879n87d0b4.apps.googleusercontent.com';
         const REDIRECT_URI = 'https://phd-tracker-ae84e.firebaseapp.com/__/auth/handler';
 
@@ -101,51 +174,48 @@ ipcMain.handle('auth:firebase-google', async () => {
 
         authWindow.loadURL(authUrl);
 
-        // Monitor navigation for the redirect with the id_token
-        authWindow.webContents.on('will-redirect', (event, redirectUrl) => {
+        const handleRedirect = (redirectUrl) => {
+            try {
+                const urlObj = new URL(redirectUrl);
+                const hash = urlObj.hash.substring(1);
+                const params = new URLSearchParams(hash);
+                const idToken = params.get('id_token') || urlObj.searchParams.get('id_token');
+
+                if (idToken && !resolved) {
+                    resolved = true;
+                    authWindow.close();
+                    resolve({ idToken });
+                }
+            } catch {
+                // Ignore incomplete redirects.
+            }
+        };
+
+        authWindow.webContents.on('will-redirect', (_event, redirectUrl) => {
             handleRedirect(redirectUrl);
         });
 
-        authWindow.webContents.on('will-navigate', (event, navUrl) => {
+        authWindow.webContents.on('will-navigate', (_event, navUrl) => {
             handleRedirect(navUrl);
         });
 
-        function handleRedirect(redirectUrl) {
-            try {
-                const urlObj = new URL(redirectUrl);
-                const hash = urlObj.hash.substring(1); // Remove leading #
-                const params = new URLSearchParams(hash);
-                const idToken = params.get('id_token');
-                
-                if (idToken) {
-                    authWindow.close();
-                    resolve({ idToken });
-                    return;
-                }
-
-                // Also check query params
-                const queryToken = urlObj.searchParams.get('id_token');
-                if (queryToken) {
-                    authWindow.close();
-                    resolve({ idToken: queryToken });
-                }
-            } catch (e) {
-                // Not a valid URL yet, ignore
-            }
-        }
-
         authWindow.on('closed', () => {
-            reject(new Error('Auth window was closed'));
+            if (!resolved) {
+                reject(new Error('Auth window was closed'));
+            }
         });
     });
 });
 
-// --- Google Calendar Auth Handlers ---
+ipcMain.handle('auth:get-session', async () => {
+    const storedSession = loadGoogleSession();
+    return {
+        hasRefreshToken: Boolean(storedSession?.refreshToken),
+        hasCustomCredentials: Boolean(storedSession?.clientId && storedSession?.clientSecret)
+    };
+});
 
-const GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID_HERE';
-const GOOGLE_CLIENT_SECRET = process.env.VITE_GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET_HERE';
-
-ipcMain.handle('auth:start', async (event, credentials = {}) => {
+ipcMain.handle('auth:start', async (_event, credentials = {}) => {
     const clientId = credentials.clientId || GOOGLE_CLIENT_ID;
     const clientSecret = credentials.clientSecret || GOOGLE_CLIENT_SECRET;
 
@@ -155,13 +225,12 @@ ipcMain.handle('auth:start', async (event, credentials = {}) => {
             server = null;
         }
 
-        // Create a new OAuth2Client
         server = http.createServer(async (req, res) => {
             try {
                 if (req.url.startsWith('/oauth2callback')) {
                     const port = server.address().port;
                     const qs = new url.URL(req.url, `http://127.0.0.1:${port}`).searchParams;
-                    
+
                     const error = qs.get('error');
                     if (error) {
                         res.end(`Authentication failed: ${error}. You can close this window.`);
@@ -181,11 +250,22 @@ ipcMain.handle('auth:start', async (event, credentials = {}) => {
                     res.end('Authentication successful! You can close this window and return to the app.');
                     if (server) { server.close(); server = null; }
 
-                    // Now that we have the code, use that to acquire tokens
                     const { tokens } = await oauth2Client.getToken(code);
                     oauth2Client.setCredentials(tokens);
 
-                    resolve(tokens);
+                    if (tokens.refresh_token) {
+                        saveGoogleSession({
+                            refreshToken: tokens.refresh_token,
+                            clientId: credentials.clientId || '',
+                            clientSecret: credentials.clientSecret || ''
+                        });
+                    }
+
+                    resolve({
+                        access_token: tokens.access_token || '',
+                        expiry_date: tokens.expiry_date || null,
+                        hasRefreshToken: Boolean(tokens.refresh_token)
+                    });
                 } else {
                     res.end('Not found');
                 }
@@ -206,45 +286,44 @@ ipcMain.handle('auth:start', async (event, credentials = {}) => {
         server.listen(0, () => {
             const port = server.address().port;
             const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
-            oauth2Client = new OAuth2Client(
-                clientId,
-                clientSecret,
-                redirectUri
-            );
+            oauth2Client = new OAuth2Client(clientId, clientSecret, redirectUri);
 
-            // Generate the url that will be used for the consent dialog.
             const authorizeUrl = oauth2Client.generateAuthUrl({
                 access_type: 'offline',
                 scope: 'https://www.googleapis.com/auth/calendar.events.readonly',
-                prompt: 'consent' // Force consent to ensure we get a refresh token
+                prompt: 'consent'
             });
 
-            // open the browser to the authorize url to start the workflow
             shell.openExternal(authorizeUrl);
         });
     });
 });
 
-ipcMain.handle('auth:refresh', async (event, { refreshToken, clientId, clientSecret }) => {
-    const cId = clientId || GOOGLE_CLIENT_ID;
-    const cSecret = clientSecret || GOOGLE_CLIENT_SECRET;
+ipcMain.handle('auth:refresh', async () => {
+    const { refreshToken, clientId, clientSecret } = getStoredCredentials();
 
-    // Always create a new OAuth2Client to ensure we use valid credentials for refresh
-    const client = new OAuth2Client(cId, cSecret);
-    
+    if (!refreshToken) {
+        throw new Error('No stored refresh token found');
+    }
+
+    const client = new OAuth2Client(clientId, clientSecret);
     client.setCredentials({
         refresh_token: refreshToken
     });
 
     const { credentials } = await client.refreshAccessToken();
-    
-    oauth2Client = client; // Update global reference if needed
-    
-    return credentials;
+    oauth2Client = client;
+
+    return {
+        access_token: credentials.access_token || '',
+        expiry_date: credentials.expiry_date || null,
+        hasRefreshToken: true
+    };
 });
 
 ipcMain.handle('auth:logout', async () => {
     oauth2Client = null;
+    clearGoogleSession();
     return true;
 });
 
