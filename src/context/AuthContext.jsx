@@ -24,12 +24,14 @@ export function AuthProvider({ children }) {
     async function signInWithGoogle() {
         // In Electron, use the custom IPC-based flow
         if (window.electronAPI?.firebaseGoogleLogin) {
-            const { idToken } = await window.electronAPI.firebaseGoogleLogin();
-            const credential = GoogleAuthProvider.credential(idToken);
-            return signInWithCredential(auth, credential);
+            const { idToken, accessToken } = await window.electronAPI.firebaseGoogleLogin();
+            const credential = GoogleAuthProvider.credential(idToken, accessToken || undefined);
+            const userCredential = await signInWithCredential(auth, credential);
+            return userCredential;
         }
         // In browser, use the standard popup flow
-        return signInWithPopup(auth, googleProvider);
+        const result = await signInWithPopup(auth, googleProvider);
+        return result;
     }
 
     function signInWithEmail(email, password) {
@@ -40,7 +42,14 @@ export function AuthProvider({ children }) {
         return createUserWithEmailAndPassword(auth, email, password);
     }
 
-    function signOut() {
+    async function signOut() {
+        if (window.electronAPI?.logoutGoogle) {
+            try {
+                await window.electronAPI.logoutGoogle();
+            } catch (error) {
+                console.error('Failed to clear stored Google calendar session', error);
+            }
+        }
         if (currentUser?.isGuest) {
             setCurrentUser(null);
             return Promise.resolve();

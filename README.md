@@ -113,6 +113,7 @@ The latest completed runtime result is recorded in `MOBILE_BACKUP_QA_REPORT.md`.
 - `archive/legacy-web/`: archived duplicate of the old desktop/web tree
 - `phd-tracker-v2/mobile/`: mobile app
 - `google_cloud_setup.md`: Google API setup notes
+- `BACKEND_CALENDAR_AUTH.md`: backend-assisted Google Calendar auth plan and deployment notes
 - `MOBILE_BUILD_GUIDE.md`: mobile-specific build notes
 - `MOBILE_BACKUP_QA.md`: mobile backup runtime QA checklist
 - `MOBILE_BACKUP_QA_REPORT_TEMPLATE.md`: fill-in report for mobile backup runtime validation

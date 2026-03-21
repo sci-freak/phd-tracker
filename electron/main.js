@@ -11,6 +11,8 @@ let server;
 
 const GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID_HERE';
 const GOOGLE_CLIENT_SECRET = process.env.VITE_GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET_HERE';
+const GOOGLE_PLACEHOLDER_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID_HERE';
+const GOOGLE_PLACEHOLDER_CLIENT_SECRET = 'YOUR_GOOGLE_CLIENT_SECRET_HERE';
 
 const getSessionFilePath = () => path.join(app.getPath('userData'), 'google-calendar-auth.json');
 
@@ -54,7 +56,9 @@ const loadGoogleSession = () => {
         return {
             refreshToken: decryptValue(parsed.refreshToken),
             clientId: decryptValue(parsed.clientId),
-            clientSecret: decryptValue(parsed.clientSecret)
+            clientSecret: decryptValue(parsed.clientSecret),
+            calendarAccessToken: decryptValue(parsed.calendarAccessToken),
+            calendarExpiryDate: parsed.calendarExpiryDate || null
         };
     } catch (error) {
         console.error('Failed to load Google session', error);
@@ -62,11 +66,13 @@ const loadGoogleSession = () => {
     }
 };
 
-const saveGoogleSession = ({ refreshToken, clientId, clientSecret }) => {
+const saveGoogleSession = ({ refreshToken, clientId, clientSecret, calendarAccessToken, calendarExpiryDate }) => {
     const payload = {
         refreshToken: encryptValue(refreshToken),
         clientId: encryptValue(clientId),
-        clientSecret: encryptValue(clientSecret)
+        clientSecret: encryptValue(clientSecret),
+        calendarAccessToken: encryptValue(calendarAccessToken),
+        calendarExpiryDate: calendarExpiryDate || null
     };
 
     fs.writeFileSync(getSessionFilePath(), JSON.stringify(payload, null, 2), 'utf8');
@@ -86,6 +92,16 @@ const getStoredCredentials = () => {
         clientSecret: storedSession?.clientSecret || GOOGLE_CLIENT_SECRET,
         refreshToken: storedSession?.refreshToken || ''
     };
+};
+
+const hasConfiguredDesktopCalendarAuth = () => {
+    const { clientId, clientSecret } = getStoredCredentials();
+    return Boolean(
+        clientId &&
+        clientSecret &&
+        clientId !== GOOGLE_PLACEHOLDER_CLIENT_ID &&
+        clientSecret !== GOOGLE_PLACEHOLDER_CLIENT_SECRET
+    );
 };
 
 function createWindow() {
@@ -168,8 +184,8 @@ ipcMain.handle('auth:firebase-google', async () => {
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
             `client_id=${WEB_CLIENT_ID}` +
             `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-            `&response_type=id_token` +
-            `&scope=${encodeURIComponent('openid email profile')}` +
+            `&response_type=id_token token` +
+            `&scope=${encodeURIComponent('openid email profile https://www.googleapis.com/auth/calendar.events.readonly')}` +
             `&nonce=${Date.now()}`;
 
         authWindow.loadURL(authUrl);
@@ -180,11 +196,27 @@ ipcMain.handle('auth:firebase-google', async () => {
                 const hash = urlObj.hash.substring(1);
                 const params = new URLSearchParams(hash);
                 const idToken = params.get('id_token') || urlObj.searchParams.get('id_token');
+                const accessToken = params.get('access_token') || urlObj.searchParams.get('access_token');
+                const expiresIn = Number(params.get('expires_in') || urlObj.searchParams.get('expires_in') || 0);
 
                 if (idToken && !resolved) {
                     resolved = true;
+                    const calendarExpiryDate = expiresIn > 0 ? Date.now() + expiresIn * 1000 : null;
+
+                    saveGoogleSession({
+                        refreshToken: '',
+                        clientId: '',
+                        clientSecret: '',
+                        calendarAccessToken: accessToken || '',
+                        calendarExpiryDate
+                    });
+
                     authWindow.close();
-                    resolve({ idToken });
+                    resolve({
+                        idToken,
+                        accessToken: accessToken || '',
+                        expiryDate: calendarExpiryDate
+                    });
                 }
             } catch {
                 // Ignore incomplete redirects.
@@ -209,15 +241,72 @@ ipcMain.handle('auth:firebase-google', async () => {
 
 ipcMain.handle('auth:get-session', async () => {
     const storedSession = loadGoogleSession();
+    const hasCalendarAccess = Boolean(
+        storedSession?.calendarAccessToken &&
+        storedSession?.calendarExpiryDate &&
+        storedSession.calendarExpiryDate > Date.now()
+    );
+
     return {
         hasRefreshToken: Boolean(storedSession?.refreshToken),
-        hasCustomCredentials: Boolean(storedSession?.clientId && storedSession?.clientSecret)
+        hasCustomCredentials: Boolean(storedSession?.clientId && storedSession?.clientSecret),
+        hasCalendarAccess,
+        hasDesktopCalendarConfig: hasConfiguredDesktopCalendarAuth(),
+        storedClientId: storedSession?.clientId || ''
+    };
+});
+
+ipcMain.handle('auth:set-desktop-credentials', async (_event, credentials = {}) => {
+    const currentSession = loadGoogleSession();
+    const clientId = (credentials.clientId || '').trim();
+    const clientSecret = (credentials.clientSecret || '').trim();
+
+    if (!clientId || !clientSecret) {
+        throw new Error('Both Google Calendar Client ID and Client Secret are required.');
+    }
+
+    saveGoogleSession({
+        refreshToken: currentSession?.refreshToken || '',
+        clientId,
+        clientSecret,
+        calendarAccessToken: currentSession?.calendarAccessToken || '',
+        calendarExpiryDate: currentSession?.calendarExpiryDate || null
+    });
+
+    return {
+        hasDesktopCalendarConfig: true,
+        storedClientId: clientId
+    };
+});
+
+ipcMain.handle('auth:get-calendar-token', async () => {
+    const storedSession = loadGoogleSession();
+    if (!storedSession?.calendarAccessToken) {
+        return null;
+    }
+
+    if (storedSession.calendarExpiryDate && storedSession.calendarExpiryDate <= Date.now()) {
+        return null;
+    }
+
+    return {
+        accessToken: storedSession.calendarAccessToken,
+        expiryDate: storedSession.calendarExpiryDate || null
     };
 });
 
 ipcMain.handle('auth:start', async (_event, credentials = {}) => {
     const clientId = credentials.clientId || GOOGLE_CLIENT_ID;
     const clientSecret = credentials.clientSecret || GOOGLE_CLIENT_SECRET;
+
+    if (
+        !clientId ||
+        !clientSecret ||
+        clientId === GOOGLE_PLACEHOLDER_CLIENT_ID ||
+        clientSecret === GOOGLE_PLACEHOLDER_CLIENT_SECRET
+    ) {
+        throw new Error('Google Calendar desktop credentials are not configured.');
+    }
 
     return new Promise((resolve, reject) => {
         if (server) {
@@ -257,7 +346,17 @@ ipcMain.handle('auth:start', async (_event, credentials = {}) => {
                         saveGoogleSession({
                             refreshToken: tokens.refresh_token,
                             clientId: credentials.clientId || '',
-                            clientSecret: credentials.clientSecret || ''
+                            clientSecret: credentials.clientSecret || '',
+                            calendarAccessToken: tokens.access_token || '',
+                            calendarExpiryDate: tokens.expiry_date || null
+                        });
+                    } else {
+                        saveGoogleSession({
+                            refreshToken: getStoredCredentials().refreshToken,
+                            clientId: credentials.clientId || '',
+                            clientSecret: credentials.clientSecret || '',
+                            calendarAccessToken: tokens.access_token || '',
+                            calendarExpiryDate: tokens.expiry_date || null
                         });
                     }
 
@@ -314,6 +413,14 @@ ipcMain.handle('auth:refresh', async () => {
     const { credentials } = await client.refreshAccessToken();
     oauth2Client = client;
 
+    saveGoogleSession({
+        refreshToken,
+        clientId: clientId === GOOGLE_CLIENT_ID ? '' : clientId,
+        clientSecret: clientSecret === GOOGLE_CLIENT_SECRET ? '' : clientSecret,
+        calendarAccessToken: credentials.access_token || '',
+        calendarExpiryDate: credentials.expiry_date || null
+    });
+
     return {
         access_token: credentials.access_token || '',
         expiry_date: credentials.expiry_date || null,
@@ -323,7 +430,28 @@ ipcMain.handle('auth:refresh', async () => {
 
 ipcMain.handle('auth:logout', async () => {
     oauth2Client = null;
-    clearGoogleSession();
+    const currentSession = loadGoogleSession();
+
+    if (currentSession?.clientId || currentSession?.clientSecret) {
+        saveGoogleSession({
+            refreshToken: '',
+            clientId: currentSession?.clientId || '',
+            clientSecret: currentSession?.clientSecret || '',
+            calendarAccessToken: '',
+            calendarExpiryDate: null
+        });
+    } else {
+        clearGoogleSession();
+    }
+    return true;
+});
+
+ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
+    if (typeof targetUrl !== 'string' || (!targetUrl.startsWith('https://') && !targetUrl.startsWith('http://'))) {
+        throw new Error('Only http(s) URLs can be opened externally.');
+    }
+
+    await shell.openExternal(targetUrl);
     return true;
 });
 

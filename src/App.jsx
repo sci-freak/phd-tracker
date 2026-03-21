@@ -320,13 +320,13 @@ function App() {
               </span>
             )}
             <button onClick={() => setIsSettingsOpen(true)} className="btn-action">
-              <span>[Settings]</span> Settings
+              Settings
             </button>
             <button onClick={exportData} className="btn-action">
-              <span>[Export]</span> Export Backup
+              Export Backup
             </button>
             <label className="btn-action">
-              <span>[Import]</span> Import Data
+              Import Data
               <input
                 type="file"
                 accept=".json,.csv"

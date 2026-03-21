@@ -1,168 +1,275 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { listUpcomingEvents } from '../services/googleCalendar';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
+import {
+    getGoogleCalendarAuthUrl,
+    getGoogleCalendarConnectionStatus,
+    listBackendGoogleCalendarEvents
+} from '../services/googleCalendarBackend';
+
+const panelStyle = {
+    marginBottom: '1rem',
+    padding: '1rem',
+    background: 'var(--bg-secondary)',
+    borderRadius: '0.5rem'
+};
+
+const AUTO_REFRESH_MS = 10 * 60 * 1000;
+const FOCUS_REFRESH_DEBOUNCE_MS = 60 * 1000;
+
+const formatGoogleEvents = (events) => {
+    return events.map((event) => ({
+        id: event.id,
+        title: event.summary,
+        start: new Date(event.start?.dateTime || event.start?.date),
+        end: new Date(event.end?.dateTime || event.end?.date),
+        allDay: !event.start?.dateTime,
+        type: 'google',
+        resource: event
+    }));
+};
 
 const GoogleConnect = ({ onEventsLoaded }) => {
-    const [clientId, setClientId] = useState('');
-    const [clientSecret, setClientSecret] = useState('');
-    const [isSignedIn, setIsSignedIn] = useState(false);
+    const { currentUser } = useAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [accessToken, setAccessToken] = useState('');
-    const [showAdvanced, setShowAdvanced] = useState(false);
-    const [hasStoredSession, setHasStoredSession] = useState(false);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isPolling, setIsPolling] = useState(false);
+    const [lastSyncedAt, setLastSyncedAt] = useState(null);
+    const lastRefreshRef = useRef(0);
+
+    const markRefreshTime = () => {
+        lastRefreshRef.current = Date.now();
+    };
+
+    const formatLastSyncedAt = (timestamp) => {
+        if (!timestamp) {
+            return '';
+        }
+
+        return new Date(timestamp).toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+    };
+
+    const loadCalendarEvents = useCallback(async () => {
+        try {
+            const items = await listBackendGoogleCalendarEvents();
+            onEventsLoaded(formatGoogleEvents(items));
+            setIsConnected(true);
+            setError('');
+            setLastSyncedAt(Date.now());
+            markRefreshTime();
+            return true;
+        } catch (err) {
+            onEventsLoaded([]);
+            setIsConnected(true);
+
+            const message = err?.message || '';
+            const code = err?.code || '';
+            if (code.includes('403') || message.includes('Google Calendar API is not enabled')) {
+                setError('Google Calendar is connected, but the Google Calendar API is not enabled in Google Cloud yet.');
+            } else if (code.includes('failed-precondition')) {
+                setError('Google Calendar is connected, but needs to be reconnected to load events.');
+            } else {
+                setError('Google Calendar is connected, but events could not be loaded right now.');
+            }
+            return false;
+        }
+    }, [onEventsLoaded]);
+
+    const refreshConnectionState = useCallback(async () => {
+        try {
+            const status = await getGoogleCalendarConnectionStatus();
+            if (status?.connected) {
+                await loadCalendarEvents();
+                return true;
+            }
+            onEventsLoaded([]);
+            setIsConnected(false);
+            return false;
+        } catch (err) {
+            onEventsLoaded([]);
+            setIsConnected(false);
+
+            const code = err?.code || '';
+            if (code.includes('not-found') || code.includes('unimplemented')) {
+                setError('Backend Google Calendar auth is not deployed yet.');
+            } else if (code.includes('unauthenticated')) {
+                setError('Sign in with Google to connect your Calendar.');
+            } else {
+                setError('Google Calendar is not connected yet.');
+            }
+            return false;
+        }
+    }, [loadCalendarEvents, onEventsLoaded]);
+
+    const handleRefreshCalendar = useCallback(async () => {
+        setLoading(true);
+        try {
+            await refreshConnectionState();
+        } finally {
+            setLoading(false);
+        }
+    }, [refreshConnectionState]);
 
     useEffect(() => {
-        const initAuth = async () => {
-            if (!window.electronAPI?.getGoogleSession) {
+        if (!currentUser || currentUser.isGuest) {
+            onEventsLoaded([]);
+            setIsConnected(false);
+            setError('');
+            return;
+        }
+
+        refreshConnectionState();
+    }, [currentUser, onEventsLoaded, refreshConnectionState]);
+
+    useEffect(() => {
+        if (!isPolling) {
+            return undefined;
+        }
+
+        let attempts = 0;
+        let isCancelled = false;
+        const intervalId = window.setInterval(async () => {
+            attempts += 1;
+            const connected = await refreshConnectionState();
+            if (isCancelled) {
+                return;
+            }
+            if (connected || attempts >= 30) {
+                window.clearInterval(intervalId);
+                setIsPolling(false);
+                setLoading(false);
+                if (!connected) {
+                    setError(prev => prev || 'Calendar connection is still pending. Finish the Google consent flow, then try again.');
+                }
+            }
+        }, 2000);
+
+        return () => {
+            isCancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [isPolling, refreshConnectionState]);
+
+    useEffect(() => {
+        const handleFocus = () => {
+            if (!currentUser || currentUser.isGuest) {
                 return;
             }
 
-            setLoading(true);
-            try {
-                const session = await window.electronAPI.getGoogleSession();
-                setHasStoredSession(Boolean(session?.hasRefreshToken));
-                setShowAdvanced(Boolean(session?.hasCustomCredentials));
-
-                if (session?.hasRefreshToken) {
-                    const tokens = await window.electronAPI.refreshGoogle();
-                    if (tokens?.access_token) {
-                        setAccessToken(tokens.access_token);
-                        setIsSignedIn(true);
-                    }
-                }
-            } catch (err) {
-                console.error('Token refresh failed', err);
-                setError('Stored Google session could not be restored. Please sign in again.');
-            } finally {
-                setLoading(false);
+            if (Date.now() - lastRefreshRef.current < FOCUS_REFRESH_DEBOUNCE_MS) {
+                return;
             }
+
+            refreshConnectionState();
         };
 
-        initAuth();
-    }, []);
+        window.addEventListener('focus', handleFocus);
+        return () => window.removeEventListener('focus', handleFocus);
+    }, [currentUser, refreshConnectionState]);
 
-    const handleLogin = async () => {
+    useEffect(() => {
+        if (!currentUser || currentUser.isGuest || !isConnected) {
+            return undefined;
+        }
+
+        const intervalId = window.setInterval(() => {
+            refreshConnectionState();
+        }, AUTO_REFRESH_MS);
+
+        return () => window.clearInterval(intervalId);
+    }, [currentUser, isConnected, refreshConnectionState]);
+
+    const handleConnectCalendar = async () => {
         setLoading(true);
         setError('');
 
         try {
-            const creds = (clientId && clientSecret) ? { clientId, clientSecret } : {};
-            const tokens = await window.electronAPI.loginGoogle(creds);
-
-            if (tokens?.access_token) {
-                setAccessToken(tokens.access_token);
-                setIsSignedIn(true);
-                setHasStoredSession(Boolean(tokens.hasRefreshToken));
+            const authUrl = await getGoogleCalendarAuthUrl();
+            if (!authUrl) {
+                throw new Error('No Calendar auth URL returned.');
             }
-        } catch (err) {
-            console.error('Login failed', err);
-            setError('Login failed. Please try again.');
-        } finally {
-            setLoading(false);
-        }
-    };
 
-    const handleLogout = async () => {
-        await window.electronAPI.logoutGoogle();
-        setIsSignedIn(false);
-        setAccessToken('');
-        setHasStoredSession(false);
-        setClientId('');
-        setClientSecret('');
-        onEventsLoaded([]);
-    };
-
-    const fetchEvents = useCallback(async (token) => {
-        try {
-            const events = await listUpcomingEvents(token);
-            const formattedEvents = events.map(event => ({
-                id: event.id,
-                title: event.summary,
-                start: new Date(event.start.dateTime || event.start.date),
-                end: new Date(event.end.dateTime || event.end.date),
-                allDay: !event.start.dateTime,
-                type: 'google',
-                resource: event
-            }));
-            onEventsLoaded(formattedEvents);
-            setError('');
-        } catch (err) {
-            console.error('Error fetching events', err);
-            if (err.status === 401 && window.electronAPI?.refreshGoogle) {
-                setError('Session expired. Please sign in again.');
+            if (window.electronAPI?.openExternal) {
+                await window.electronAPI.openExternal(authUrl);
             } else {
-                setError('Failed to fetch events.');
+                window.open(authUrl, '_blank', 'noopener,noreferrer');
+            }
+            setIsPolling(true);
+        } catch (err) {
+            console.error('Backend Google Calendar connect failed', err);
+            setLoading(false);
+
+            const code = err?.code || '';
+            if (code.includes('unimplemented') || code.includes('not-found')) {
+                setError('Backend Google Calendar auth is not deployed yet.');
+            } else if (code.includes('unauthenticated')) {
+                setError('Sign in with Google before connecting Calendar.');
+            } else {
+                setError('Failed to start Google Calendar connection.');
             }
         }
-    }, [onEventsLoaded]);
+    };
 
-    useEffect(() => {
-        if (!accessToken) {
-            return;
-        }
+    const isGoogleUser = currentUser?.providerData?.some(
+        (provider) => provider?.providerId === 'google.com'
+    );
 
-        fetchEvents(accessToken);
-    }, [accessToken, fetchEvents]);
-
-    if (!isSignedIn && !loading) {
+    if (!currentUser || currentUser.isGuest) {
         return (
-            <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: '0.5rem' }}>
-                <h3 style={{ marginTop: 0 }}>Connect Google Calendar</h3>
-                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    Sign in to view your upcoming events alongside your deadlines.
+            <div style={panelStyle}>
+                <h3 style={{ marginTop: 0 }}>Google Calendar</h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: 0 }}>
+                    Sign in with Google to view Calendar events alongside your application deadlines.
                 </p>
-                {hasStoredSession && (
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        A stored Google session is available, but it needs a fresh sign-in.
-                    </p>
-                )}
+            </div>
+        );
+    }
 
-                {showAdvanced && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-                        <input
-                            type="text"
-                            placeholder="Custom Client ID (Optional)"
-                            value={clientId}
-                            onChange={(e) => setClientId(e.target.value)}
-                        />
-                        <input
-                            type="password"
-                            placeholder="Custom Client Secret (Optional)"
-                            value={clientSecret}
-                            onChange={(e) => setClientSecret(e.target.value)}
-                        />
-                    </div>
-                )}
-
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    <button onClick={handleLogin} className="btn-action" disabled={loading}>
-                        {loading ? 'Connecting...' : 'Sign In with Google'}
-                    </button>
-                    <button
-                        onClick={() => setShowAdvanced(!showAdvanced)}
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem', textDecoration: 'underline' }}
-                    >
-                        {showAdvanced ? 'Hide Advanced' : 'Advanced Settings'}
-                    </button>
-                </div>
-                {error && <p style={{ color: 'var(--accent-danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{error}</p>}
+    if (!isGoogleUser) {
+        return (
+            <div style={panelStyle}>
+                <h3 style={{ marginTop: 0 }}>Google Calendar</h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: 0 }}>
+                    Calendar sync will be available after you use Google sign-in on the home screen.
+                </p>
             </div>
         );
     }
 
     return (
-        <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem', background: 'var(--bg-secondary)', borderRadius: '0.5rem' }}>
-            <span style={{ color: 'var(--accent-success)' }}>Connected to Google Calendar</span>
-            <button onClick={handleLogout} className="btn-action" style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}>
-                Sign Out
-            </button>
+        <div style={{ ...panelStyle, display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <span style={{ color: isConnected ? 'var(--accent-success)' : 'var(--text-secondary)' }}>
+                    {isConnected ? 'Google Calendar connected' : 'Google Calendar is not connected'}
+                </span>
+                {isConnected && lastSyncedAt && (
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        Last synced at {formatLastSyncedAt(lastSyncedAt)}
+                    </span>
+                )}
+            </div>
             <button
-                onClick={() => fetchEvents(accessToken)}
+                onClick={handleConnectCalendar}
                 className="btn-action"
-                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', background: 'var(--bg-primary)' }}
+                disabled={loading}
+                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
             >
-                Refresh
+                {loading ? (isPolling ? 'Waiting for Google...' : 'Connecting...') : isConnected ? 'Reconnect Google Calendar' : 'Connect Google Calendar'}
             </button>
+            {isConnected && (
+                <button
+                    onClick={handleRefreshCalendar}
+                    className="btn-action"
+                    disabled={loading}
+                    style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                >
+                    {loading ? 'Refreshing...' : 'Refresh Calendar'}
+                </button>
+            )}
+            {error && <span style={{ color: 'var(--accent-danger)', fontSize: '0.8rem' }}>{error}</span>}
         </div>
     );
 };

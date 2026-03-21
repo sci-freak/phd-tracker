@@ -23,7 +23,6 @@ const SettingsModal = ({ isOpen, onClose, currentShortcut, onSaveShortcut }) => 
         if (e.altKey) keys.push('Alt');
         if (e.shiftKey) keys.push('Shift');
 
-        // Don't register modifier keys alone
         if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return;
 
         keys.push(e.key.toUpperCase());
@@ -41,31 +40,37 @@ const SettingsModal = ({ isOpen, onClose, currentShortcut, onSaveShortcut }) => 
     if (!isOpen) return null;
 
     return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(4px)',
-            zIndex: 9999,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center'
-        }} onClick={onClose}>
-            <div style={{
-                width: '400px',
-                maxWidth: '90%',
-                background: 'var(--bg-card)',
-                border: 'var(--glass-border)',
-                borderRadius: '1rem',
-                boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-                padding: '1.5rem',
+        <div
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0, 0, 0, 0.6)',
+                backdropFilter: 'blur(4px)',
+                zIndex: 9999,
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '1.5rem'
-            }} onClick={e => e.stopPropagation()}>
+                justifyContent: 'center',
+                alignItems: 'center'
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    width: '420px',
+                    maxWidth: '92%',
+                    background: 'var(--bg-card)',
+                    border: 'var(--glass-border)',
+                    borderRadius: '1rem',
+                    boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+                    padding: '1.5rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1.25rem'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
                 <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Settings</h2>
 
                 <div>
@@ -98,7 +103,7 @@ const SettingsModal = ({ isOpen, onClose, currentShortcut, onSaveShortcut }) => 
                             style={{ padding: '0 1rem', fontSize: '0.9rem' }}
                             title="Reset to default"
                         >
-                            ↺
+                            Reset
                         </button>
                     </div>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
@@ -106,14 +111,21 @@ const SettingsModal = ({ isOpen, onClose, currentShortcut, onSaveShortcut }) => 
                     </p>
                 </div>
 
+                <div style={{ padding: '0.9rem 1rem', borderRadius: '0.75rem', background: 'rgba(0,0,0,0.18)' }}>
+                    <strong style={{ display: 'block', marginBottom: '0.35rem' }}>Google Calendar</strong>
+                    <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                        Calendar connection is being moved to a backend-assisted Google flow so end users do not need to manage OAuth credentials locally.
+                    </p>
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                    <button onClick={onClose} className="btn-action">Cancel</button>
+                    <button onClick={onClose} className="btn-action">Close</button>
                     <button
                         onClick={handleSave}
                         className="btn-action"
                         style={{ borderColor: 'var(--accent-success)', color: 'var(--accent-success)' }}
                     >
-                        Save Changes
+                        Save Shortcut
                     </button>
                 </div>
             </div>
