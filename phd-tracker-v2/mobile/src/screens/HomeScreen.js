@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     View,
     Text,
@@ -10,11 +10,13 @@ import {
     TextInput,
     Modal,
     Linking,
-    Image
+    Image,
+    ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import { compareApplicationsByDeadline, compareApplicationsByStatus } from '@phd-tracker/shared/applications';
+import { countries } from '@phd-tracker/shared/countries';
 import { formatDeadlineDate, getBackupDateStamp } from '@phd-tracker/shared/dates';
 import { mapImportedCsvRow, parseImportedJson } from '@phd-tracker/shared/imports';
 import { STATUS_FILTER_OPTIONS, getStatusColor } from '@phd-tracker/shared/statuses';
@@ -27,12 +29,15 @@ import { useAuth } from '../context/AuthContext';
 import { MobileDataService } from '../services/MobileDataService';
 import MobileConflictResolutionModal from '../components/MobileConflictResolutionModal';
 
+const ALL_COUNTRIES_LABEL = 'All Countries';
+
 export default function HomeScreen({ navigation }) {
     const { user, logout } = useAuth();
     const [applications, setApplications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
+    const [countryFilter, setCountryFilter] = useState(ALL_COUNTRIES_LABEL);
     const [sortOption, setSortOption] = useState('deadline');
     const [isFilterModalVisible, setFilterModalVisible] = useState(false);
     const [isActionsModalVisible, setActionsModalVisible] = useState(false);
@@ -117,9 +122,17 @@ export default function HomeScreen({ navigation }) {
         Linking.openURL(finalUrl).catch(() => Alert.alert('Error', "Couldn't open link"));
     };
 
-    const formatUrl = (url) => {
+    const getWebsiteHost = (url) => {
         if (!url) return '';
-        return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+
+        try {
+            const finalUrl = url.startsWith('http://') || url.startsWith('https://')
+                ? url
+                : `https://${url}`;
+            return new URL(finalUrl).hostname.replace(/^www\./, '');
+        } catch {
+            return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+        }
     };
 
     const handleExport = async () => {
@@ -232,6 +245,20 @@ export default function HomeScreen({ navigation }) {
         );
     };
 
+    const availableCountries = useMemo(() => {
+        const usedCountries = new Set(
+            applications
+                .map((app) => app.country)
+                .filter(Boolean)
+        );
+
+        return countries
+            .filter((country) => usedCountries.has(country))
+            .sort((a, b) => a.localeCompare(b));
+    }, [applications]);
+
+    const activeFilterCount = (statusFilter !== 'All' ? 1 : 0) + (countryFilter !== ALL_COUNTRIES_LABEL ? 1 : 0);
+
     const filteredApplications = applications
         .filter((app) => {
             const search = searchTerm.toLowerCase();
@@ -239,7 +266,8 @@ export default function HomeScreen({ navigation }) {
                 (app.university?.toLowerCase() || '').includes(search) ||
                 (app.program?.toLowerCase() || '').includes(search);
             const matchesStatus = statusFilter === 'All' || app.status === statusFilter;
-            return matchesSearch && matchesStatus;
+            const matchesCountry = countryFilter === ALL_COUNTRIES_LABEL || app.country === countryFilter;
+            return matchesSearch && matchesStatus && matchesCountry;
         })
         .sort((a, b) => {
             if (sortOption === 'deadline') {
@@ -278,7 +306,7 @@ export default function HomeScreen({ navigation }) {
                                         style={styles.flag}
                                     />
                                 ) : (
-                                    <Text style={styles.metaFallback}>Globe</Text>
+                                    <Text style={styles.metaFallback}>Country</Text>
                                 )}
                                 <Text style={styles.metaText}>{item.country}</Text>
                             </View>
@@ -308,10 +336,13 @@ export default function HomeScreen({ navigation }) {
 
                     {item.website ? (
                         <TouchableOpacity
-                            style={styles.linkButton}
+                            style={styles.websiteButton}
                             onPress={() => handleOpenLink(item.website)}
                         >
-                            <Text style={styles.linkText}>Link {formatUrl(item.website)}</Text>
+                            <Text style={styles.websiteButtonText}>Website ↗</Text>
+                            <Text style={styles.websiteHostText} numberOfLines={1}>
+                                {getWebsiteHost(item.website)}
+                            </Text>
                         </TouchableOpacity>
                     ) : null}
                 </TouchableOpacity>
@@ -362,7 +393,9 @@ export default function HomeScreen({ navigation }) {
                     style={styles.filterButton}
                     onPress={() => setFilterModalVisible(true)}
                 >
-                    <Text style={styles.filterButtonText}>Filter</Text>
+                    <Text style={styles.filterButtonText}>
+                        {activeFilterCount > 0 ? `Filters ${activeFilterCount}` : 'Filters'}
+                    </Text>
                 </TouchableOpacity>
             </View>
 
@@ -392,51 +425,89 @@ export default function HomeScreen({ navigation }) {
                 onRequestClose={() => setFilterModalVisible(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Filters & Sort</Text>
+                    <ScrollView contentContainerStyle={styles.modalScrollContent}>
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>Filters & Sort</Text>
 
-                        <Text style={styles.modalLabel}>Status</Text>
-                        <View style={styles.modalOptions}>
-                            {STATUS_FILTER_OPTIONS.map((status) => (
+                            <Text style={styles.modalLabel}>Status</Text>
+                            <View style={styles.modalOptions}>
+                                {STATUS_FILTER_OPTIONS.map((status) => (
+                                    <TouchableOpacity
+                                        key={status}
+                                        style={[styles.optionButton, statusFilter === status && styles.optionButtonActive]}
+                                        onPress={() => setStatusFilter(status)}
+                                    >
+                                        <Text style={[styles.optionText, statusFilter === status && styles.optionTextActive]}>
+                                            {status}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+
+                            <Text style={styles.modalLabel}>Country</Text>
+                            <View style={styles.modalOptions}>
                                 <TouchableOpacity
-                                    key={status}
-                                    style={[styles.optionButton, statusFilter === status && styles.optionButtonActive]}
-                                    onPress={() => setStatusFilter(status)}
+                                    style={[styles.optionButton, countryFilter === ALL_COUNTRIES_LABEL && styles.optionButtonActive]}
+                                    onPress={() => setCountryFilter(ALL_COUNTRIES_LABEL)}
                                 >
-                                    <Text style={[styles.optionText, statusFilter === status && styles.optionTextActive]}>
-                                        {status}
+                                    <Text style={[styles.optionText, countryFilter === ALL_COUNTRIES_LABEL && styles.optionTextActive]}>
+                                        {ALL_COUNTRIES_LABEL}
                                     </Text>
                                 </TouchableOpacity>
-                            ))}
-                        </View>
+                                {availableCountries.map((country) => (
+                                    <TouchableOpacity
+                                        key={country}
+                                        style={[styles.optionButton, countryFilter === country && styles.optionButtonActive]}
+                                        onPress={() => setCountryFilter(country)}
+                                    >
+                                        <Text style={[styles.optionText, countryFilter === country && styles.optionTextActive]}>
+                                            {country}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
 
-                        <Text style={styles.modalLabel}>Sort By</Text>
-                        <View style={styles.modalOptions}>
-                            <TouchableOpacity
-                                style={[styles.optionButton, sortOption === 'deadline' && styles.optionButtonActive]}
-                                onPress={() => setSortOption('deadline')}
-                            >
-                                <Text style={[styles.optionText, sortOption === 'deadline' && styles.optionTextActive]}>
-                                    Deadline
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.optionButton, sortOption === 'status' && styles.optionButtonActive]}
-                                onPress={() => setSortOption('status')}
-                            >
-                                <Text style={[styles.optionText, sortOption === 'status' && styles.optionTextActive]}>
-                                    Status
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
+                            <Text style={styles.modalLabel}>Sort By</Text>
+                            <View style={styles.modalOptions}>
+                                <TouchableOpacity
+                                    style={[styles.optionButton, sortOption === 'deadline' && styles.optionButtonActive]}
+                                    onPress={() => setSortOption('deadline')}
+                                >
+                                    <Text style={[styles.optionText, sortOption === 'deadline' && styles.optionTextActive]}>
+                                        Deadline
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.optionButton, sortOption === 'status' && styles.optionButtonActive]}
+                                    onPress={() => setSortOption('status')}
+                                >
+                                    <Text style={[styles.optionText, sortOption === 'status' && styles.optionTextActive]}>
+                                        Status
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
 
-                        <TouchableOpacity
-                            style={styles.closeButton}
-                            onPress={() => setFilterModalVisible(false)}
-                        >
-                            <Text style={styles.closeButtonText}>Done</Text>
-                        </TouchableOpacity>
-                    </View>
+                            <View style={styles.filterFooter}>
+                                <TouchableOpacity
+                                    style={[styles.closeButton, styles.secondaryCloseButton]}
+                                    onPress={() => {
+                                        setStatusFilter('All');
+                                        setCountryFilter(ALL_COUNTRIES_LABEL);
+                                        setSortOption('deadline');
+                                    }}
+                                >
+                                    <Text style={styles.closeButtonText}>Reset</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={styles.closeButton}
+                                    onPress={() => setFilterModalVisible(false)}
+                                >
+                                    <Text style={styles.closeButtonText}>Done</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </ScrollView>
                 </View>
             </Modal>
 
@@ -549,6 +620,7 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         borderWidth: 1,
         borderColor: '#334155',
+        minWidth: 86,
     },
     filterButtonText: {
         color: '#cbd5e1',
@@ -571,13 +643,13 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 8,
+        gap: 8,
     },
     university: {
         fontSize: 18,
         fontWeight: 'bold',
         color: '#fff',
         flex: 1,
-        marginRight: 8,
     },
     program: {
         fontSize: 16,
@@ -625,13 +697,26 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
     },
-    linkButton: {
+    websiteButton: {
+        marginTop: 6,
         alignSelf: 'flex-start',
-        marginTop: 4,
+        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+        borderWidth: 1,
+        borderColor: 'rgba(59, 130, 246, 0.4)',
+        borderRadius: 10,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        maxWidth: '100%',
+        gap: 2,
     },
-    linkText: {
-        color: '#3b82f6',
+    websiteButtonText: {
+        color: '#60a5fa',
         fontSize: 13,
+        fontWeight: '700',
+    },
+    websiteHostText: {
+        color: '#93c5fd',
+        fontSize: 12,
     },
     emptyText: {
         color: '#94a3b8',
@@ -664,12 +749,16 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.5)',
         justifyContent: 'flex-end',
     },
+    modalScrollContent: {
+        flexGrow: 1,
+        justifyContent: 'flex-end',
+    },
     modalContent: {
         backgroundColor: '#1e293b',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         padding: 20,
-        maxHeight: '80%',
+        maxHeight: '85%',
     },
     modalTitle: {
         fontSize: 20,
@@ -709,12 +798,20 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '600',
     },
+    filterFooter: {
+        flexDirection: 'row',
+        gap: 12,
+    },
     closeButton: {
         marginTop: 20,
         backgroundColor: '#3b82f6',
         padding: 16,
         borderRadius: 12,
         alignItems: 'center',
+        flex: 1,
+    },
+    secondaryCloseButton: {
+        backgroundColor: '#334155',
     },
     closeButtonText: {
         color: '#fff',

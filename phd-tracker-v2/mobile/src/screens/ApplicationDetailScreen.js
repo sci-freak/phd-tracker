@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Linking } from 'react-native';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { formatDeadlineDate } from '@phd-tracker/shared/dates';
@@ -16,36 +16,38 @@ export default function ApplicationDetailScreen({ navigation, route }) {
     useEffect(() => {
         if (user?.isGuest) {
             const unsubscribe = MobileDataService.subscribeToApplications(user, (apps) => {
-                const app = apps.find(a => a.id === applicationId);
+                const app = apps.find((candidate) => candidate.id === applicationId);
                 if (app) {
                     setApplication(app);
-                } else {
-                    // Deleted
-                    if (navigation.canGoBack()) navigation.goBack();
+                } else if (navigation.canGoBack()) {
+                    navigation.goBack();
                 }
                 setLoading(false);
             });
             return unsubscribe;
-        } else {
-            const docRef = doc(db, `users/${user.uid}/applications`, applicationId);
-            const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        }
+
+        const docRef = doc(db, `users/${user.uid}/applications`, applicationId);
+        const unsubscribe = onSnapshot(
+            docRef,
+            (docSnap) => {
                 if (docSnap.exists()) {
                     setApplication({ id: docSnap.id, ...docSnap.data() });
+                } else if (navigation.canGoBack()) {
+                    navigation.goBack();
                 } else {
-                    if (navigation.canGoBack()) {
-                        navigation.goBack();
-                    } else {
-                        navigation.navigate('Home');
-                    }
+                    navigation.navigate('Home');
                 }
                 setLoading(false);
-            }, (error) => {
+            },
+            () => {
                 Alert.alert('Error', 'Failed to fetch application details');
                 setLoading(false);
-            });
-            return () => unsubscribe();
-        }
-    }, [applicationId, user]);
+            }
+        );
+
+        return () => unsubscribe();
+    }, [applicationId, navigation, user]);
 
     const handleDelete = async () => {
         Alert.alert(
@@ -59,8 +61,7 @@ export default function ApplicationDetailScreen({ navigation, route }) {
                     onPress: async () => {
                         try {
                             await MobileDataService.deleteApplication(user, applicationId);
-                            // Navigation handled by listener
-                        } catch (error) {
+                        } catch {
                             Alert.alert('Error', 'Failed to delete application');
                         }
                     }
@@ -71,11 +72,25 @@ export default function ApplicationDetailScreen({ navigation, route }) {
 
     const handleOpenLink = (url) => {
         if (!url) return;
-        let finalUrl = url;
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            finalUrl = `https://${url}`;
+
+        const finalUrl = url.startsWith('http://') || url.startsWith('https://')
+            ? url
+            : `https://${url}`;
+
+        Linking.openURL(finalUrl).catch(() => Alert.alert('Error', "Couldn't open link"));
+    };
+
+    const getWebsiteHost = (url) => {
+        if (!url) return '';
+
+        try {
+            const finalUrl = url.startsWith('http://') || url.startsWith('https://')
+                ? url
+                : `https://${url}`;
+            return new URL(finalUrl).hostname.replace(/^www\./, '');
+        } catch {
+            return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
         }
-        Linking.openURL(finalUrl).catch(err => Alert.alert("Error", "Couldn't open link"));
     };
 
     const LinkText = ({ text }) => {
@@ -84,11 +99,11 @@ export default function ApplicationDetailScreen({ navigation, route }) {
 
         return (
             <Text style={styles.value}>
-                {parts.map((part, i) => {
+                {parts.map((part, index) => {
                     if (part.match(urlRegex) && (part.includes('.') || part.includes('localhost'))) {
                         return (
                             <Text
-                                key={i}
+                                key={index}
                                 style={styles.link}
                                 onPress={() => handleOpenLink(part)}
                             >
@@ -141,8 +156,9 @@ export default function ApplicationDetailScreen({ navigation, route }) {
             {application.website ? (
                 <View style={styles.section}>
                     <Text style={styles.label}>Website</Text>
-                    <TouchableOpacity onPress={() => handleOpenLink(application.website)}>
-                        <Text style={[styles.value, styles.link]}>{application.website}</Text>
+                    <TouchableOpacity style={styles.websiteButton} onPress={() => handleOpenLink(application.website)}>
+                        <Text style={styles.websiteButtonText}>Website ↗</Text>
+                        <Text style={styles.websiteHostText}>{getWebsiteHost(application.website)}</Text>
                     </TouchableOpacity>
                 </View>
             ) : null}
@@ -164,10 +180,10 @@ export default function ApplicationDetailScreen({ navigation, route }) {
             {application.requirements ? (
                 <View style={styles.section}>
                     <Text style={styles.label}>Requirements</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                        {Array.isArray(application.requirements) ? application.requirements.map(req => (
-                            <View key={req} style={styles.reqBadge}>
-                                <Text style={styles.reqText}>{req}</Text>
+                    <View style={styles.requirementsWrap}>
+                        {Array.isArray(application.requirements) ? application.requirements.map((requirement) => (
+                            <View key={requirement} style={styles.reqBadge}>
+                                <Text style={styles.reqText}>{requirement}</Text>
                             </View>
                         )) : (
                             <Text style={styles.value}>{application.requirements}</Text>
@@ -239,11 +255,30 @@ const styles = StyleSheet.create({
     label: {
         color: '#94a3b8',
         fontSize: 14,
-        marginBottom: 4,
+        marginBottom: 6,
     },
     value: {
         color: '#fff',
         fontSize: 18,
+    },
+    websiteButton: {
+        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+        borderWidth: 1,
+        borderColor: 'rgba(59, 130, 246, 0.4)',
+        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        alignSelf: 'flex-start',
+        gap: 2,
+    },
+    websiteButtonText: {
+        color: '#60a5fa',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    websiteHostText: {
+        color: '#93c5fd',
+        fontSize: 13,
     },
     link: {
         color: '#3b82f6',
@@ -273,6 +308,12 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
+    },
+    requirementsWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginTop: 4,
     },
     reqBadge: {
         backgroundColor: 'rgba(56, 189, 248, 0.2)',

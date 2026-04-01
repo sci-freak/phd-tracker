@@ -39,7 +39,7 @@ function Navigation() {
             <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
             <Stack.Screen name="AddEdit" component={AddEditApplicationScreen} options={{ title: 'Application' }} />
             <Stack.Screen name="Details" component={ApplicationDetailScreen} options={{ title: 'Details' }} />
-            <Stack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Upcoming Deadlines' }} />
+            <Stack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Calendar' }} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />

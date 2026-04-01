@@ -28,6 +28,9 @@
     "mobile:ios": "npm run ios --workspace @phd-tracker/mobile",
     "mobile:web": "npm run web --workspace @phd-tracker/mobile",
     "mobile:doctor": "npm exec --workspace @phd-tracker/mobile expo-doctor",
+    "mobile:android:devclient": "cmd /c \"cd /d phd-tracker-v2\\mobile && npx.cmd eas-cli build --platform android --profile development\"",
+    "mobile:android:preview": "cmd /c \"cd /d phd-tracker-v2\\mobile && npx.cmd eas-cli build --platform android --profile preview\"",
+    "mobile:android:local": "npx.cmd expo run:android phd-tracker-v2/mobile",
     "preview": "vite preview",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && .\\node_modules\\electron\\dist\\electron.exe .\"",
     "electron:build": "npm run build && .\\node_modules\\.bin\\electron-packager.cmd . --overwrite --platform=win32 --arch=x64 --out=release-builds --prune=true"

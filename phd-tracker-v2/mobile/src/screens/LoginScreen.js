@@ -3,14 +3,16 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Tex
 import { useAuth } from '../context/AuthContext';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
+import Constants from 'expo-constants';
 import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 import { auth } from '../config/firebase';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// User should replace this with their actual Firebase Web Client ID
-const GOOGLE_WEB_CLIENT_ID = '203521050176-l92asmu4f3i32d88a55dfqeqj5hlrmbr.apps.googleusercontent.com';
+const GOOGLE_WEB_CLIENT_ID = '852501777550-7vlcc4vq4pn4ar50in5qg6879n87d0b4.apps.googleusercontent.com';
+const GOOGLE_ANDROID_CLIENT_ID = '852501777550-a8q3o4srrpb5cu7rd7hiu1a3rruta3jc.apps.googleusercontent.com';
+const GOOGLE_PROXY_REDIRECT_URI = 'https://auth.expo.io/@scifreak/mobile/oauthredirect';
+const GOOGLE_NATIVE_REDIRECT_URI = 'com.drharshsriv.phdtracker:/oauthredirect';
 
 export default function LoginScreen() {
     const { signIn, signUp, continueAsGuest } = useAuth();
@@ -19,14 +21,17 @@ export default function LoginScreen() {
     const [isSignUp, setIsSignUp] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    // Using Expo's native auth configuration instead of the deprecated proxy route
+    const isExpoGo = Constants.appOwnership === 'expo';
+
     const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-        clientId: GOOGLE_WEB_CLIENT_ID, // Force the id_token audience to be the Web Client ID for Firebase
+        clientId: GOOGLE_WEB_CLIENT_ID,
         webClientId: GOOGLE_WEB_CLIENT_ID,
-        androidClientId: '852501777550-a8q3o4srrpb5cu7rd7hiu1a3rruta3jc.apps.googleusercontent.com', // Actually use the registered Android credentials
-        redirectUri: makeRedirectUri({
-            scheme: 'com.drharshsriv.phdtracker' // Native Android requires the package name as the scheme
-        }),
+        androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+        redirectUri: isExpoGo ? GOOGLE_PROXY_REDIRECT_URI : GOOGLE_NATIVE_REDIRECT_URI,
+        scopes: ['openid', 'profile', 'email'],
+        extraParams: {
+            prompt: 'select_account'
+        }
     });
 
     useEffect(() => {
@@ -50,6 +55,12 @@ export default function LoginScreen() {
         }
     }, [response]);
 
+    useEffect(() => {
+        if (response?.type === 'error') {
+            Alert.alert('Google Sign-In Failed', 'Google sign-in could not be completed.');
+        }
+    }, [response]);
+
     const handleEmailAuth = async () => {
         if (!email || !password) {
             Alert.alert('Error', 'Please enter email and password');
@@ -67,6 +78,22 @@ export default function LoginScreen() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleGoogleSignIn = async () => {
+        if (!request || loading) {
+            return;
+        }
+
+        if (isExpoGo || request.redirectUri?.startsWith('exp://')) {
+            Alert.alert(
+                'Use An Installed Android Build',
+                'Google sign-in is blocked in Expo Go because it uses an exp:// redirect. Open the installed Android build or dev client, then try again.'
+            );
+            return;
+        }
+
+        promptAsync();
     };
 
     return (
@@ -116,7 +143,7 @@ export default function LoginScreen() {
 
             <TouchableOpacity
                 style={[styles.button, styles.googleButton]}
-                onPress={() => promptAsync()}
+                onPress={handleGoogleSignIn}
                 disabled={!request || loading}
             >
                 <Text style={[styles.buttonText, styles.googleButtonText]}>Sign In with Google</Text>
