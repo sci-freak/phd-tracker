@@ -6,6 +6,89 @@ export const sortApplications = (apps) => {
     });
 };
 
+export const APPLICATION_DOCUMENT_TYPES = [
+    { value: 'sop', label: 'SOP' },
+    { value: 'recommendation', label: 'Recommendation' },
+    { value: 'supporting', label: 'Supporting Document' },
+    { value: 'other', label: 'Other Document' }
+];
+
+const normalizeDocumentType = (type) => {
+    const fallbackType = 'supporting';
+    if (typeof type !== 'string') {
+        return fallbackType;
+    }
+
+    const normalizedType = type.trim().toLowerCase();
+    return APPLICATION_DOCUMENT_TYPES.some((option) => option.value === normalizedType)
+        ? normalizedType
+        : fallbackType;
+};
+
+export const normalizeDocuments = (documents, legacyFile = null, legacyFiles = []) => {
+    const candidates = [];
+
+    if (Array.isArray(documents)) {
+        candidates.push(...documents);
+    }
+
+    if (legacyFile && typeof legacyFile === 'object') {
+        candidates.push({
+            id: legacyFile.id || legacyFile.name || 'legacy-file',
+            category: 'supporting',
+            ...legacyFile
+        });
+    }
+
+    if (Array.isArray(legacyFiles)) {
+        candidates.push(...legacyFiles);
+    }
+
+    return candidates
+        .map((document, index) => {
+            if (!document || typeof document !== 'object') {
+                return null;
+            }
+
+            const name = typeof document.name === 'string' ? document.name.trim() : '';
+            if (!name) {
+                return null;
+            }
+
+            const normalizedDocument = {
+                id: document.id || `${normalizeDocumentType(document.category || document.type)}-${index}-${name}`,
+                name,
+                category: normalizeDocumentType(document.category || document.type),
+                mimeType: typeof document.mimeType === 'string'
+                    ? document.mimeType
+                    : typeof document.type === 'string'
+                        ? document.type
+                        : '',
+                size: typeof document.size === 'number' ? document.size : 0,
+                uploadedAt: typeof document.uploadedAt === 'string' ? document.uploadedAt : '',
+                downloadUrl: typeof document.downloadUrl === 'string' ? document.downloadUrl : '',
+                storagePath: typeof document.storagePath === 'string' ? document.storagePath : '',
+                dataUrl: typeof document.dataUrl === 'string'
+                    ? document.dataUrl
+                    : typeof document.content === 'string'
+                        ? document.content
+                        : '',
+                refereeEmail: typeof document.refereeEmail === 'string' ? document.refereeEmail.trim() : ''
+            };
+
+            if (document.file) {
+                normalizedDocument.file = document.file;
+            }
+
+            if (typeof document.uri === 'string') {
+                normalizedDocument.uri = document.uri;
+            }
+
+            return normalizedDocument;
+        })
+        .filter(Boolean);
+};
+
 export const withSortOrder = (app, fallbackSortOrder = 0) => {
     return {
         ...app,
@@ -23,17 +106,21 @@ export const createEmptyApplicationDraft = () => {
         deadline: '',
         website: '',
         qsRanking: '',
+        refereeEmail: '',
         requirements: [],
-        notes: ''
+        notes: '',
+        documents: []
     };
 };
 
-export const createApplicationSubmission = (app, { now = new Date(), existingCreatedAt, file = null } = {}) => {
+export const createApplicationSubmission = (app, { now = new Date(), existingCreatedAt, file = null, documents = null } = {}) => {
     const draft = createEmptyApplicationDraft();
     const normalizedApp = normalizeImportedApplication({
         ...draft,
         ...app,
+        file: app?.file,
         files: app?.files,
+        documents: documents ?? app?.documents,
         requirements: app?.requirements
     });
 
@@ -128,8 +215,9 @@ export const normalizeImportedApplication = (app) => {
     const department = typeof app.department === 'string' ? app.department.trim() : '';
     const website = typeof app.website === 'string' ? app.website.trim() : '';
     const qsRanking = app.qsRanking ?? '';
+    const refereeEmail = typeof app.refereeEmail === 'string' ? app.refereeEmail.trim() : '';
     const requirements = normalizeRequirements(app.requirements);
-    const files = Array.isArray(app.files) ? app.files : [];
+    const documents = normalizeDocuments(app.documents, app.file, app.files);
 
     return {
         university,
@@ -141,8 +229,9 @@ export const normalizeImportedApplication = (app) => {
         department,
         website,
         qsRanking,
+        refereeEmail,
         requirements,
-        files,
+        documents,
         sortOrder: typeof app.sortOrder === 'number' ? app.sortOrder : undefined
     };
 };

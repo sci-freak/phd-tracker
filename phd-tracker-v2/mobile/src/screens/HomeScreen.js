@@ -15,10 +15,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
-import { compareApplicationsByDeadline, compareApplicationsByStatus } from '@phd-tracker/shared/applications';
+import { compareApplicationsByDeadline, compareApplicationsByStatus, normalizeDocuments } from '@phd-tracker/shared/applications';
 import { countries } from '@phd-tracker/shared/countries';
 import { formatDeadlineDate, getBackupDateStamp } from '@phd-tracker/shared/dates';
 import { mapImportedCsvRow, parseImportedJson } from '@phd-tracker/shared/imports';
+import { APP_REPOSITORY_URL } from '@phd-tracker/shared/links';
 import { STATUS_FILTER_OPTIONS, getStatusColor } from '@phd-tracker/shared/statuses';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -228,7 +229,12 @@ export default function HomeScreen({ navigation }) {
 
     const handleDelete = async (id) => {
         try {
-            await MobileDataService.deleteApplication(user, id);
+            const appToDelete = applications.find((application) => application.id === id);
+            await MobileDataService.deleteApplication(
+                user,
+                id,
+                normalizeDocuments(appToDelete?.documents, appToDelete?.file, appToDelete?.files)
+            );
         } catch {
             Alert.alert('Error', 'Failed to delete application');
         }
@@ -281,6 +287,7 @@ export default function HomeScreen({ navigation }) {
 
     const renderItem = ({ item }) => {
         const countryCode = getCountryCode(item.country);
+        const itemDocuments = normalizeDocuments(item.documents, item.file, item.files);
 
         return (
             <Swipeable renderRightActions={() => renderRightActions(item.id)}>
@@ -329,6 +336,23 @@ export default function HomeScreen({ navigation }) {
                             {item.requirements.length > 3 ? (
                                 <View style={styles.miniBadge}>
                                     <Text style={styles.miniBadgeText}>+{item.requirements.length - 3}</Text>
+                                </View>
+                            ) : null}
+                        </View>
+                    ) : null}
+
+                    {itemDocuments.length > 0 ? (
+                        <View style={styles.documentRow}>
+                            {itemDocuments.slice(0, 2).map((document) => (
+                                <View key={document.id} style={styles.documentBadge}>
+                                    <Text style={styles.documentBadgeText} numberOfLines={1}>
+                                        {document.name}
+                                    </Text>
+                                </View>
+                            ))}
+                            {itemDocuments.length > 2 ? (
+                                <View style={styles.documentBadge}>
+                                    <Text style={styles.documentBadgeText}>+{itemDocuments.length - 2} more</Text>
                                 </View>
                             ) : null}
                         </View>
@@ -530,6 +554,26 @@ export default function HomeScreen({ navigation }) {
                         </TouchableOpacity>
 
                         <TouchableOpacity
+                            style={styles.actionsButton}
+                            onPress={() => {
+                                setActionsModalVisible(false);
+                                navigation.navigate('Referees');
+                            }}
+                        >
+                            <Text style={styles.actionsButtonText}>Referees</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.actionsButton}
+                            onPress={() => {
+                                setActionsModalVisible(false);
+                                Linking.openURL(APP_REPOSITORY_URL).catch(() => Alert.alert('Error', "Couldn't open GitHub repo"));
+                            }}
+                        >
+                            <Text style={styles.actionsButtonText}>GitHub Repo</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
                             style={[styles.actionsButton, styles.actionsButtonSecondary]}
                             onPress={() => setActionsModalVisible(false)}
                         >
@@ -687,6 +731,24 @@ const styles = StyleSheet.create({
         gap: 6,
         marginBottom: 8,
     },
+    documentRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginBottom: 8,
+    },
+    documentBadge: {
+        backgroundColor: 'rgba(148, 163, 184, 0.18)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 999,
+        maxWidth: '100%',
+    },
+    documentBadgeText: {
+        color: '#cbd5e1',
+        fontSize: 11,
+        fontWeight: '600',
+    },
     statusBadge: {
         paddingHorizontal: 8,
         paddingVertical: 4,
@@ -717,6 +779,7 @@ const styles = StyleSheet.create({
     websiteHostText: {
         color: '#93c5fd',
         fontSize: 12,
+        display: 'none',
     },
     emptyText: {
         color: '#94a3b8',

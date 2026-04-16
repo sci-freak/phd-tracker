@@ -45,7 +45,9 @@ test('createEmptyApplicationDraft returns the canonical blank draft', () => {
         website: '',
         qsRanking: '',
         requirements: [],
-        notes: ''
+        notes: '',
+        refereeEmail: '',
+        documents: []
     });
 });
 
@@ -77,7 +79,8 @@ test('normalizeImportedApplication validates required fields and normalizes shap
             website: 'example.com',
             qsRanking: '',
             requirements: ['TOEFL', 'GRE'],
-            files: [],
+            refereeEmail: '',
+            documents: [],
             sortOrder: undefined
         }
     );
@@ -108,7 +111,8 @@ test('createApplicationSubmission normalizes payload and applies timestamps', ()
         website: '',
         qsRanking: '',
         requirements: ['TOEFL', 'GRE'],
-        files: [],
+        refereeEmail: '',
+        documents: [],
         sortOrder: undefined,
         createdAt: '2026-03-20T10:00:00.000Z',
         updatedAt: '2026-03-20T10:00:00.000Z',

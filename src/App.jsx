@@ -16,6 +16,7 @@ import { DataService } from './services/DataService';
 import { compareApplicationsByDeadline, compareApplicationsByStatus } from '@phd-tracker/shared/applications';
 import { getBackupDateStamp } from '@phd-tracker/shared/dates';
 import { mapImportedCsvRow, parseImportedJson } from '@phd-tracker/shared/imports';
+import { APP_REPOSITORY_URL } from '@phd-tracker/shared/links';
 import { STATUS_FILTER_OPTIONS } from '@phd-tracker/shared/statuses';
 
 import { countries } from './constants/countries';
@@ -24,6 +25,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStr
 import SortableItem from './components/SortableItem';
 import SearchModal from './components/SearchModal';
 import SettingsModal from './components/SettingsModal';
+import RefereesModal from './components/RefereesModal';
 
 function App() {
   const { currentUser, signOut } = useAuth();
@@ -39,6 +41,7 @@ function App() {
   const [sortDirection, setSortDirection] = useState('asc');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isRefereesOpen, setIsRefereesOpen] = useState(false);
   const [shortcut, setShortcut] = useState(() => localStorage.getItem('searchShortcut') || 'Ctrl+K');
 
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
@@ -188,7 +191,8 @@ function App() {
 
   const deleteApplication = async (id) => {
     try {
-      await DataService.deleteApplication(currentUser, id);
+      const appToDelete = applications.find((app) => app.id === id);
+      await DataService.deleteApplication(currentUser, id, appToDelete?.documents || []);
     } catch (e) {
       console.error('Error deleting document: ', e);
     }
@@ -322,6 +326,12 @@ function App() {
             <button onClick={() => setIsSettingsOpen(true)} className="btn-action">
               Settings
             </button>
+            <button
+              onClick={() => window.open(APP_REPOSITORY_URL, '_blank', 'noopener,noreferrer')}
+              className="btn-action"
+            >
+              GitHub Repo
+            </button>
             <button onClick={exportData} className="btn-action">
               Export Backup
             </button>
@@ -334,6 +344,9 @@ function App() {
                 style={{ display: 'none' }}
               />
             </label>
+            <button onClick={() => setIsRefereesOpen(true)} className="btn-action">
+              Referees
+            </button>
             <button
               onClick={signOut}
               className="btn-action"
@@ -526,6 +539,11 @@ function App() {
           setShortcut(newShortcut);
           localStorage.setItem('searchShortcut', newShortcut);
         }}
+      />
+      <RefereesModal
+        isOpen={isRefereesOpen}
+        onClose={() => setIsRefereesOpen(false)}
+        currentUser={currentUser}
       />
       <ConflictResolutionModal
         isOpen={conflictModalOpen}

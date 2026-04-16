@@ -12,6 +12,7 @@ import HomeScreen from './src/screens/HomeScreen';
 import AddEditApplicationScreen from './src/screens/AddEditApplicationScreen';
 import ApplicationDetailScreen from './src/screens/ApplicationDetailScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
+import RefereesScreen from './src/screens/RefereesScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -40,6 +41,7 @@ function Navigation() {
             <Stack.Screen name="AddEdit" component={AddEditApplicationScreen} options={{ title: 'Application' }} />
             <Stack.Screen name="Details" component={ApplicationDetailScreen} options={{ title: 'Details' }} />
             <Stack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Calendar' }} />
+            <Stack.Screen name="Referees" component={RefereesScreen} options={{ title: 'Referees' }} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />

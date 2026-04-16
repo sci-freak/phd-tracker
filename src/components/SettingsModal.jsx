@@ -111,13 +111,6 @@ const SettingsModal = ({ isOpen, onClose, currentShortcut, onSaveShortcut }) => 
                     </p>
                 </div>
 
-                <div style={{ padding: '0.9rem 1rem', borderRadius: '0.75rem', background: 'rgba(0,0,0,0.18)' }}>
-                    <strong style={{ display: 'block', marginBottom: '0.35rem' }}>Google Calendar</strong>
-                    <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                        Calendar connection is being moved to a backend-assisted Google flow so end users do not need to manage OAuth credentials locally.
-                    </p>
-                </div>
-
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
                     <button onClick={onClose} className="btn-action">Close</button>
                     <button

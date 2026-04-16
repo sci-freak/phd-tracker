@@ -455,6 +455,44 @@ ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
     return true;
 });
 
+ipcMain.handle('shell:open-document', async (_event, documentPayload = {}) => {
+    const { name = 'document', dataUrl = '' } = documentPayload;
+
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+        throw new Error('A valid document payload is required.');
+    }
+
+    const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+        throw new Error('Unsupported document encoding.');
+    }
+
+    const [, mimeType, base64Content] = matches;
+    const extensionMap = {
+        'application/pdf': '.pdf',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'text/plain': '.txt',
+        'image/png': '.png',
+        'image/jpeg': '.jpg'
+    };
+
+    const preferredExtension = path.extname(name) || extensionMap[mimeType] || '';
+    const safeBaseName = path.basename(name, path.extname(name)).replace(/[^a-zA-Z0-9._-]/g, '-');
+    const tempDir = path.join(app.getPath('temp'), 'phd-tracker-documents');
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    const filePath = path.join(tempDir, `${Date.now()}-${safeBaseName || 'document'}${preferredExtension}`);
+    fs.writeFileSync(filePath, Buffer.from(base64Content, 'base64'));
+
+    const openResult = await shell.openPath(filePath);
+    if (openResult) {
+        throw new Error(openResult);
+    }
+
+    return { filePath };
+});
+
 app.whenReady().then(() => {
     createWindow();
 

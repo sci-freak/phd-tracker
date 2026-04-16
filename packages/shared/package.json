@@ -7,8 +7,10 @@
     "./countries": "./src/countries.js",
     "./countryFlags": "./src/countryFlags.js",
     "./applications": "./src/applications.js",
+    "./referees": "./src/referees.js",
     "./statuses": "./src/statuses.js",
     "./dates": "./src/dates.js",
-    "./imports": "./src/imports.js"
+    "./imports": "./src/imports.js",
+    "./links": "./src/links.js"
   }
 }

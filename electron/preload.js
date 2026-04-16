@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     loginGoogle: (credentials) => ipcRenderer.invoke('auth:start', credentials),
     logoutGoogle: () => ipcRenderer.invoke('auth:logout'),
     refreshGoogle: () => ipcRenderer.invoke('auth:refresh'),
-    openExternal: (targetUrl) => ipcRenderer.invoke('shell:open-external', targetUrl)
+    openExternal: (targetUrl) => ipcRenderer.invoke('shell:open-external', targetUrl),
+    openDocument: (documentPayload) => ipcRenderer.invoke('shell:open-document', documentPayload)
 });

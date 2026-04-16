@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Linking } from 'react-native';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { APPLICATION_DOCUMENT_TYPES, normalizeDocuments, normalizeRequirements } from '@phd-tracker/shared/applications';
 import { formatDeadlineDate } from '@phd-tracker/shared/dates';
 import { getStatusColor } from '@phd-tracker/shared/statuses';
 import { db } from '../config/firebase';
@@ -60,7 +61,11 @@ export default function ApplicationDetailScreen({ navigation, route }) {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await MobileDataService.deleteApplication(user, applicationId);
+                            await MobileDataService.deleteApplication(
+                                user,
+                                applicationId,
+                                normalizeDocuments(application?.documents, application?.file, application?.files)
+                            );
                         } catch {
                             Alert.alert('Error', 'Failed to delete application');
                         }
@@ -80,41 +85,12 @@ export default function ApplicationDetailScreen({ navigation, route }) {
         Linking.openURL(finalUrl).catch(() => Alert.alert('Error', "Couldn't open link"));
     };
 
-    const getWebsiteHost = (url) => {
-        if (!url) return '';
-
+    const handleOpenDocument = async (document) => {
         try {
-            const finalUrl = url.startsWith('http://') || url.startsWith('https://')
-                ? url
-                : `https://${url}`;
-            return new URL(finalUrl).hostname.replace(/^www\./, '');
+            await MobileDataService.shareApplicationDocument(document);
         } catch {
-            return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+            Alert.alert('Error', 'Failed to open document');
         }
-    };
-
-    const LinkText = ({ text }) => {
-        const urlRegex = /((?:https?:\/\/|www\.)[^\s]+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)/g;
-        const parts = text.split(urlRegex);
-
-        return (
-            <Text style={styles.value}>
-                {parts.map((part, index) => {
-                    if (part.match(urlRegex) && (part.includes('.') || part.includes('localhost'))) {
-                        return (
-                            <Text
-                                key={index}
-                                style={styles.link}
-                                onPress={() => handleOpenLink(part)}
-                            >
-                                {part}
-                            </Text>
-                        );
-                    }
-                    return part;
-                })}
-            </Text>
-        );
     };
 
     if (loading) {
@@ -126,6 +102,9 @@ export default function ApplicationDetailScreen({ navigation, route }) {
     }
 
     if (!application) return null;
+
+    const requirements = normalizeRequirements(application.requirements);
+    const documents = normalizeDocuments(application.documents, application.file, application.files);
 
     return (
         <ScrollView style={styles.container}>
@@ -156,9 +135,8 @@ export default function ApplicationDetailScreen({ navigation, route }) {
             {application.website ? (
                 <View style={styles.section}>
                     <Text style={styles.label}>Website</Text>
-                    <TouchableOpacity style={styles.websiteButton} onPress={() => handleOpenLink(application.website)}>
-                        <Text style={styles.websiteButtonText}>Website ↗</Text>
-                        <Text style={styles.websiteHostText}>{getWebsiteHost(application.website)}</Text>
+                    <TouchableOpacity style={styles.ctaButton} onPress={() => handleOpenLink(application.website)}>
+                        <Text style={styles.ctaButtonText}>Website ↗</Text>
                     </TouchableOpacity>
                 </View>
             ) : null}
@@ -177,17 +155,35 @@ export default function ApplicationDetailScreen({ navigation, route }) {
                 </Text>
             </View>
 
-            {application.requirements ? (
+            {requirements.length > 0 ? (
                 <View style={styles.section}>
                     <Text style={styles.label}>Requirements</Text>
                     <View style={styles.requirementsWrap}>
-                        {Array.isArray(application.requirements) ? application.requirements.map((requirement) => (
+                        {requirements.map((requirement) => (
                             <View key={requirement} style={styles.reqBadge}>
                                 <Text style={styles.reqText}>{requirement}</Text>
                             </View>
-                        )) : (
-                            <Text style={styles.value}>{application.requirements}</Text>
-                        )}
+                        ))}
+                    </View>
+                </View>
+            ) : null}
+
+            {documents.length > 0 ? (
+                <View style={styles.section}>
+                    <Text style={styles.label}>Documents</Text>
+                    <View style={styles.documentsList}>
+                        {documents.map((document) => (
+                            <TouchableOpacity
+                                key={document.id}
+                                style={styles.documentButton}
+                                onPress={() => handleOpenDocument(document)}
+                            >
+                                <Text style={styles.documentTitle}>{document.name}</Text>
+                                <Text style={styles.documentMeta}>
+                                    {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
                     </View>
                 </View>
             ) : null}
@@ -195,7 +191,7 @@ export default function ApplicationDetailScreen({ navigation, route }) {
             {application.notes ? (
                 <View style={styles.section}>
                     <Text style={styles.label}>Notes</Text>
-                    <LinkText text={application.notes} />
+                    <Text style={styles.value}>{application.notes}</Text>
                 </View>
             ) : null}
 
@@ -261,7 +257,7 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 18,
     },
-    websiteButton: {
+    ctaButton: {
         backgroundColor: 'rgba(59, 130, 246, 0.12)',
         borderWidth: 1,
         borderColor: 'rgba(59, 130, 246, 0.4)',
@@ -269,20 +265,11 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         paddingHorizontal: 14,
         alignSelf: 'flex-start',
-        gap: 2,
     },
-    websiteButtonText: {
+    ctaButtonText: {
         color: '#60a5fa',
         fontSize: 16,
         fontWeight: '700',
-    },
-    websiteHostText: {
-        color: '#93c5fd',
-        fontSize: 13,
-    },
-    link: {
-        color: '#3b82f6',
-        textDecorationLine: 'underline',
     },
     actions: {
         flexDirection: 'row',
@@ -324,5 +311,25 @@ const styles = StyleSheet.create({
     reqText: {
         color: '#38bdf8',
         fontSize: 14,
+    },
+    documentsList: {
+        gap: 10,
+    },
+    documentButton: {
+        backgroundColor: '#1e293b',
+        borderWidth: 1,
+        borderColor: '#334155',
+        borderRadius: 10,
+        padding: 12,
+    },
+    documentTitle: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 15,
+    },
+    documentMeta: {
+        color: '#94a3b8',
+        fontSize: 12,
+        marginTop: 4,
     }
 });

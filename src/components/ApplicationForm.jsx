@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { createApplicationSubmission, createEmptyApplicationDraft } from '@phd-tracker/shared/applications';
+import {
+    APPLICATION_DOCUMENT_TYPES,
+    createApplicationSubmission,
+    createEmptyApplicationDraft
+} from '@phd-tracker/shared/applications';
 import { APPLICATION_STATUSES } from '@phd-tracker/shared/statuses';
 import WysiwygEditor from './WysiwygEditor';
 
@@ -18,11 +22,31 @@ const requirementOptions = [
     '4 LORs'
 ];
 
+const MAX_DOCUMENT_SIZE = 2 * 1024 * 1024;
+
+const createPendingDocument = (selectedDocumentFile, selectedDocumentType) => {
+    if (!selectedDocumentFile) {
+        return null;
+    }
+
+    return {
+        id: crypto.randomUUID(),
+        category: selectedDocumentType,
+        name: selectedDocumentFile.name,
+        mimeType: selectedDocumentFile.type,
+        size: selectedDocumentFile.size,
+        file: selectedDocumentFile,
+        uploadedAt: new Date().toISOString()
+    };
+};
+
 const ApplicationForm = ({ onAdd }) => {
     const [formData, setFormData] = useState(() => createEmptyApplicationDraft());
-    const [file, setFile] = useState(null);
     const [requirements, setRequirements] = useState([]);
     const [newRequirement, setNewRequirement] = useState('');
+    const [documents, setDocuments] = useState([]);
+    const [selectedDocumentType, setSelectedDocumentType] = useState('sop');
+    const [selectedDocumentFile, setSelectedDocumentFile] = useState(null);
 
     const addRequirement = () => {
         if (newRequirement && !requirements.includes(newRequirement)) {
@@ -37,50 +61,42 @@ const ApplicationForm = ({ onAdd }) => {
 
     const handleFileChange = (event) => {
         const selectedFile = event.target.files[0];
-        if (selectedFile && selectedFile.size > 500000) {
-            alert('File is too large! Please select a file under 500KB.');
+        if (selectedFile && selectedFile.size > MAX_DOCUMENT_SIZE) {
+            alert('File is too large. Please select a file under 2MB.');
             return;
         }
-        setFile(selectedFile);
+        setSelectedDocumentFile(selectedFile);
     };
 
-    const convertToBase64 = (selectedFile) => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(selectedFile);
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = (error) => reject(error);
-        });
+    const addDocument = () => {
+        const pendingDocument = createPendingDocument(selectedDocumentFile, selectedDocumentType);
+        if (!pendingDocument) {
+            alert('Choose a file before adding a document.');
+            return;
+        }
+
+        setDocuments((current) => [...current, pendingDocument]);
+        setSelectedDocumentFile(null);
+    };
+
+    const removeDocument = (documentId) => {
+        setDocuments((current) => current.filter((document) => document.id !== documentId));
     };
 
     const handleSubmit = async (event) => {
         event.preventDefault();
         if (!formData.university || !formData.program) return;
 
-        let fileData = null;
-        if (file) {
-            try {
-                const base64 = await convertToBase64(file);
-                fileData = {
-                    name: file.name,
-                    type: file.type,
-                    content: base64
-                };
-            } catch (error) {
-                console.error('Error converting file:', error);
-                alert('Failed to process file.');
-                return;
-            }
-        }
-
         const submission = createApplicationSubmission(
             {
                 ...formData,
-                requirements
+                requirements,
+                documents: (() => {
+                    const pendingDocument = createPendingDocument(selectedDocumentFile, selectedDocumentType);
+                    return pendingDocument ? [...documents, pendingDocument] : documents;
+                })()
             },
-            {
-                file: fileData
-            }
+            {}
         );
 
         if (!submission) {
@@ -94,9 +110,11 @@ const ApplicationForm = ({ onAdd }) => {
         });
 
         setFormData(createEmptyApplicationDraft());
-        setFile(null);
         setRequirements([]);
         setNewRequirement('');
+        setDocuments([]);
+        setSelectedDocumentFile(null);
+        setSelectedDocumentType('sop');
     };
 
     return (
@@ -204,19 +222,6 @@ const ApplicationForm = ({ onAdd }) => {
                 </select>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>CV / SOP (Max 500KB)</label>
-                <label className="btn-action" style={{ justifyContent: 'center', width: '100%' }}>
-                    <span>[File]</span> {file ? file.name : 'Choose File'}
-                    <input
-                        type="file"
-                        accept=".pdf,.doc,.docx,.txt"
-                        onChange={handleFileChange}
-                        style={{ display: 'none' }}
-                    />
-                </label>
-            </div>
-
             <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Requirements</label>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -276,6 +281,77 @@ const ApplicationForm = ({ onAdd }) => {
                         ))}
                     </div>
                 ) : null}
+            </div>
+
+            <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Documents</label>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <select
+                        value={selectedDocumentType}
+                        onChange={(event) => setSelectedDocumentType(event.target.value)}
+                        style={{ minWidth: '180px' }}
+                    >
+                        {APPLICATION_DOCUMENT_TYPES.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                    </select>
+                    <label className="btn-action" style={{ justifyContent: 'center', minWidth: '220px' }}>
+                        <span>[File]</span> {selectedDocumentFile ? selectedDocumentFile.name : 'Choose Document'}
+                        <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                            onChange={handleFileChange}
+                            style={{ display: 'none' }}
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        onClick={addDocument}
+                        className="btn-action"
+                        style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                    >
+                        + Add Document
+                    </button>
+                </div>
+
+                {documents.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '0.75rem' }}>
+                        {documents.map((document) => (
+                            <div
+                                key={document.id}
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    gap: '1rem',
+                                    padding: '0.75rem 1rem',
+                                    borderRadius: '0.75rem',
+                                    background: 'rgba(15, 23, 42, 0.45)',
+                                    border: 'var(--glass-border)'
+                                }}
+                            >
+                                <div>
+                                    <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{document.name}</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                                        {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => removeDocument(document.id)}
+                                    className="btn-action"
+                                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                                >
+                                    Remove
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                        Add SOPs, recommendation letters, or other supporting documents here.
+                    </span>
+                )}
             </div>
 
             <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

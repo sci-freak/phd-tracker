@@ -1,12 +1,25 @@
 import React from 'react';
+import { APPLICATION_DOCUMENT_TYPES, normalizeDocuments } from '@phd-tracker/shared/applications';
 import MarkdownRenderer from './MarkdownRenderer';
 import { formatReadableDate, formatReadableTime } from '@phd-tracker/shared/dates';
+import { openDocumentWithSystemViewer } from '../utils/documentOpen';
 
 const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
     if (!event) return null;
 
     const app = event.resource || {};
     const isGoogleEvent = event.type === 'google';
+    const documents = normalizeDocuments(app.documents, app.file, app.files);
+
+    const handleOpenDocument = async (eventObject, document) => {
+        eventObject.preventDefault();
+        try {
+            await openDocumentWithSystemViewer(document);
+        } catch (error) {
+            console.error(error);
+            alert('Failed to open document.');
+        }
+    };
 
     return (
         <div style={{
@@ -135,6 +148,31 @@ const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
                                     }}
                                 >
                                     <MarkdownRenderer text={app.notes} />
+                                </div>
+                            </div>
+                        )}
+
+                        {documents.length > 0 && (
+                            <div>
+                                <strong style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Documents</strong>
+                                <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                    {documents.map((document) => (
+                                        <a
+                                            key={document.id}
+                                            href={document.downloadUrl || document.dataUrl || '#'}
+                                            onClick={(eventObject) => handleOpenDocument(eventObject, document)}
+                                            style={{
+                                                color: 'var(--accent-primary)',
+                                                textDecoration: 'none',
+                                                padding: '0.75rem 1rem',
+                                                borderRadius: '0.5rem',
+                                                border: '1px solid var(--glass-border)',
+                                                background: 'var(--bg-secondary)'
+                                            }}
+                                        >
+                                            {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}: {document.name}
+                                        </a>
+                                    ))}
                                 </div>
                             </div>
                         )}

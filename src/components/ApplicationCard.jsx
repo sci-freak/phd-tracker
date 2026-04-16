@@ -4,19 +4,43 @@ import NotesModal from './NotesModal';
 import SearchableSelect from './SearchableSelect';
 import { APPLICATION_STATUSES, getStatusColor } from '@phd-tracker/shared/statuses';
 import { formatDeadlineDate, getDaysUntilDeadline } from '@phd-tracker/shared/dates';
-import { normalizeRequirements } from '@phd-tracker/shared/applications';
+import { APPLICATION_DOCUMENT_TYPES, normalizeDocuments, normalizeRequirements } from '@phd-tracker/shared/applications';
 import { getCountryCode } from '../utils/countryFlags';
+import { openDocumentWithSystemViewer } from '../utils/documentOpen';
 import { countries } from '../constants/countries';
+
+const MAX_DOCUMENT_SIZE = 2 * 1024 * 1024;
+
+const createPendingDocument = (selectedDocumentFile, selectedDocumentType) => {
+    if (!selectedDocumentFile) {
+        return null;
+    }
+
+    return {
+        id: crypto.randomUUID(),
+        category: selectedDocumentType,
+        name: selectedDocumentFile.name,
+        mimeType: selectedDocumentFile.type,
+        size: selectedDocumentFile.size,
+        file: selectedDocumentFile,
+        uploadedAt: new Date().toISOString()
+    };
+};
 
 const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, onEditEnd, dragHandleProps }) => {
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedApp, setEditedApp] = React.useState(app);
     const [newRequirement, setNewRequirement] = React.useState('');
     const [isNotesModalOpen, setIsNotesModalOpen] = React.useState(false);
+    const [selectedDocumentType, setSelectedDocumentType] = React.useState('supporting');
+    const [selectedDocumentFile, setSelectedDocumentFile] = React.useState(null);
 
     const requirements = React.useMemo(() => {
         return normalizeRequirements(app.requirements);
     }, [app.requirements]);
+    const documents = React.useMemo(() => {
+        return normalizeDocuments(app.documents, app.file, app.files);
+    }, [app.documents, app.file, app.files]);
 
     const requirementOptions = ['TOEFL', 'IELTS', 'GRE', 'GMAT', 'Transcripts', 'SOP', 'CV', 'Personal Statement', '1 LOR', '2 LORs', '3 LORs', '4 LORs'];
 
@@ -31,8 +55,16 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
     }, [startEditing, app.id]);
 
     const handleSave = () => {
-        onEdit(editedApp);
+        const pendingDocument = createPendingDocument(selectedDocumentFile, selectedDocumentType);
+        onEdit({
+            ...editedApp,
+            documents: pendingDocument
+                ? [...normalizeDocuments(editedApp.documents), pendingDocument]
+                : normalizeDocuments(editedApp.documents),
+            previousDocuments: normalizeDocuments(app.documents, app.file, app.files)
+        });
         setIsEditing(false);
+        setSelectedDocumentFile(null);
         if (onEditEnd) onEditEnd();
     };
 
@@ -43,7 +75,10 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
     };
 
     const handleEdit = () => {
-        setEditedApp(app);
+        setEditedApp({
+            ...app,
+            documents: normalizeDocuments(app.documents, app.file, app.files)
+        });
         setIsEditing(true);
     };
 
@@ -66,6 +101,49 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
             ...editedApp,
             requirements: currentRequirements.filter(r => r !== req)
         });
+    };
+
+    const handleDocumentFileChange = (event) => {
+        const selectedFile = event.target.files[0];
+        if (selectedFile && selectedFile.size > MAX_DOCUMENT_SIZE) {
+            alert('File is too large. Please select a file under 2MB.');
+            return;
+        }
+        setSelectedDocumentFile(selectedFile);
+    };
+
+    const addDocument = () => {
+        const pendingDocument = createPendingDocument(selectedDocumentFile, selectedDocumentType);
+        if (!pendingDocument) {
+            alert('Choose a file before adding a document.');
+            return;
+        }
+
+        setEditedApp({
+            ...editedApp,
+            documents: [
+                ...(Array.isArray(editedApp.documents) ? editedApp.documents : []),
+                pendingDocument
+            ]
+        });
+        setSelectedDocumentFile(null);
+    };
+
+    const removeDocument = (documentId) => {
+        setEditedApp({
+            ...editedApp,
+            documents: (editedApp.documents || []).filter((document) => document.id !== documentId)
+        });
+    };
+
+    const handleOpenDocument = async (event, document) => {
+        event.preventDefault();
+        try {
+            await openDocumentWithSystemViewer(document);
+        } catch (error) {
+            console.error(error);
+            alert('Failed to open document.');
+        }
     };
 
     if (isEditing) {
@@ -234,6 +312,76 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                     </div>
                 </div>
 
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Documents</label>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <select
+                            value={selectedDocumentType}
+                            onChange={(e) => setSelectedDocumentType(e.target.value)}
+                            style={{ minWidth: '180px' }}
+                        >
+                            {APPLICATION_DOCUMENT_TYPES.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </select>
+                        <label className="btn-action" style={{ justifyContent: 'center', minWidth: '220px' }}>
+                            <span>[File]</span> {selectedDocumentFile ? selectedDocumentFile.name : 'Choose Document'}
+                            <input
+                                type="file"
+                                accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                                onChange={handleDocumentFileChange}
+                                style={{ display: 'none' }}
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            onClick={addDocument}
+                            className="btn-action"
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                        >
+                            + Add Document
+                        </button>
+                    </div>
+                    {(editedApp.documents || []).length > 0 ? (
+                        <div style={{ display: 'grid', gap: '0.75rem' }}>
+                            {editedApp.documents.map((document) => (
+                                <div
+                                    key={document.id}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        gap: '1rem',
+                                        padding: '0.75rem 1rem',
+                                        borderRadius: '0.75rem',
+                                        background: 'rgba(15, 23, 42, 0.45)',
+                                        border: 'var(--glass-border)'
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{document.name}</div>
+                                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                                            {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeDocument(document.id)}
+                                        className="btn-action"
+                                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                                    >
+                                        Remove
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                            Add SOPs, recommendations, or other supporting documents.
+                        </span>
+                    )}
+                </div>
+
                 <NotesModal
                     isOpen={isNotesModalOpen}
                     onClose={() => setIsNotesModalOpen(false)}
@@ -350,10 +498,13 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                         rel="noopener noreferrer"
                         style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}
                     >
-                        Website
+                        Website ↗
                     </a>
                 )}
                 {app.qsRanking && <span>QS Rank: #{app.qsRanking}</span>}
+                {documents.length > 0 && (
+                    <span>{documents.length} document{documents.length === 1 ? '' : 's'}</span>
+                )}
             </div>
 
             {requirements && requirements.length > 0 && (
@@ -421,28 +572,36 @@ const ApplicationCard = ({ app, onDelete, onStatusChange, onEdit, startEditing, 
                 </div>
             </div>
 
-            {app.file && (
+            {documents.length > 0 && (
                 <div style={{ marginTop: '0.5rem' }}>
-                    <a
-                        href={app.file.content}
-                        download={app.file.name}
-                        style={{
-                            fontSize: '0.85rem',
-                            color: 'var(--accent-primary)',
-                            textDecoration: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.5rem',
-                            border: '1px dashed var(--accent-primary)',
-                            borderRadius: '0.5rem',
-                            transition: 'background 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                        Attachment: {app.file.name}
-                    </a>
+                    <div style={{ marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        Documents
+                    </div>
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                        {documents.map((document) => (
+                            <a
+                                key={document.id}
+                                href={document.downloadUrl || document.dataUrl || '#'}
+                                onClick={(event) => handleOpenDocument(event, document)}
+                                style={{
+                                    fontSize: '0.85rem',
+                                    color: 'var(--accent-primary)',
+                                    textDecoration: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem',
+                                    padding: '0.5rem',
+                                    border: '1px dashed var(--accent-primary)',
+                                    borderRadius: '0.5rem',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                            >
+                                {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}: {document.name}
+                            </a>
+                        ))}
+                    </div>
                 </div>
             )}
 

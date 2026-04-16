@@ -11,8 +11,15 @@ import {
     KeyboardAvoidingView,
     Platform
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { doc, getDoc } from 'firebase/firestore';
-import { createApplicationSubmission, createEmptyApplicationDraft, normalizeRequirements } from '@phd-tracker/shared/applications';
+import {
+    APPLICATION_DOCUMENT_TYPES,
+    createApplicationSubmission,
+    createEmptyApplicationDraft,
+    normalizeDocuments,
+    normalizeRequirements
+} from '@phd-tracker/shared/applications';
 import { formatDeadlineDate, toDateInputValue } from '@phd-tracker/shared/dates';
 import { APPLICATION_STATUSES } from '@phd-tracker/shared/statuses';
 import CountryPicker from '../components/CountryPicker';
@@ -20,6 +27,8 @@ import CustomDatePicker from '../components/CustomDatePicker';
 import { MobileDataService } from '../services/MobileDataService';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../config/firebase';
+
+const MAX_DOCUMENT_SIZE = 2 * 1024 * 1024;
 
 export default function AddEditApplicationScreen({ navigation, route }) {
     const { applicationId } = route.params || {};
@@ -31,6 +40,8 @@ export default function AddEditApplicationScreen({ navigation, route }) {
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [requirementsList, setRequirementsList] = useState([]);
     const [newRequirement, setNewRequirement] = useState('');
+    const [documents, setDocuments] = useState([]);
+    const [selectedDocumentType, setSelectedDocumentType] = useState('sop');
     const [formData, setFormData] = useState(() => createEmptyApplicationDraft());
 
     useEffect(() => {
@@ -54,6 +65,7 @@ export default function AddEditApplicationScreen({ navigation, route }) {
 
                 setFormData(app);
                 setRequirementsList(normalizeRequirements(app.requirements));
+                setDocuments(normalizeDocuments(app.documents, app.file, app.files));
                 return;
             }
 
@@ -69,6 +81,7 @@ export default function AddEditApplicationScreen({ navigation, route }) {
             const data = docSnap.data();
             setFormData(data);
             setRequirementsList(normalizeRequirements(data.requirements));
+            setDocuments(normalizeDocuments(data.documents, data.file, data.files));
         } catch {
             Alert.alert('Error', 'Failed to fetch application details');
         } finally {
@@ -94,6 +107,46 @@ export default function AddEditApplicationScreen({ navigation, route }) {
         setRequirementsList((current) => current.filter((_, index) => index !== indexToRemove));
     };
 
+    const handleDocumentPick = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'image/*'],
+                copyToCacheDirectory: true,
+                multiple: false
+            });
+
+            if (result.canceled || !result.assets?.length) {
+                return;
+            }
+
+            const asset = result.assets[0];
+            if (asset.size && asset.size > MAX_DOCUMENT_SIZE) {
+                Alert.alert('File too large', 'Please choose a document under 2MB.');
+                return;
+            }
+
+            setDocuments((current) => [
+                ...current,
+                {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    category: selectedDocumentType,
+                    name: asset.name,
+                    mimeType: asset.mimeType || 'application/octet-stream',
+                    size: asset.size || 0,
+                    uri: asset.uri,
+                    uploadedAt: new Date().toISOString()
+                }
+            ]);
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to pick document');
+        }
+    };
+
+    const removeDocument = (documentId) => {
+        setDocuments((current) => current.filter((document) => document.id !== documentId));
+    };
+
     const handleSave = async () => {
         if (!formData.university || !formData.program) {
             Alert.alert('Error', 'University and Program are required');
@@ -105,7 +158,8 @@ export default function AddEditApplicationScreen({ navigation, route }) {
             const appData = createApplicationSubmission(
                 {
                     ...formData,
-                    requirements: requirementsList
+                    requirements: requirementsList,
+                    documents
                 },
                 {
                     existingCreatedAt: isEditing ? formData.createdAt : undefined
@@ -119,7 +173,11 @@ export default function AddEditApplicationScreen({ navigation, route }) {
             }
 
             if (isEditing) {
-                await MobileDataService.updateApplication(user, { id: applicationId, ...appData });
+                await MobileDataService.updateApplication(user, {
+                    id: applicationId,
+                    ...appData,
+                    previousDocuments: normalizeDocuments(formData.documents, formData.file, formData.files)
+                });
             } else {
                 await MobileDataService.addApplication(user, appData);
             }
@@ -285,6 +343,57 @@ export default function AddEditApplicationScreen({ navigation, route }) {
                         numberOfLines={4}
                     />
 
+                    <Text style={styles.label}>Documents</Text>
+                    <View style={styles.documentsContainer}>
+                        <View style={styles.statusContainer}>
+                            {APPLICATION_DOCUMENT_TYPES.map((option) => (
+                                <TouchableOpacity
+                                    key={option.value}
+                                    style={[
+                                        styles.statusButton,
+                                        selectedDocumentType === option.value && styles.statusButtonActive
+                                    ]}
+                                    onPress={() => setSelectedDocumentType(option.value)}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.statusText,
+                                            selectedDocumentType === option.value && styles.statusTextActive
+                                        ]}
+                                    >
+                                        {option.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <TouchableOpacity style={styles.documentPickerButton} onPress={handleDocumentPick}>
+                            <Text style={styles.documentPickerButtonText}>Add Document</Text>
+                        </TouchableOpacity>
+
+                        {documents.length > 0 ? (
+                            <View style={styles.documentsList}>
+                                {documents.map((document) => (
+                                    <View key={document.id} style={styles.documentRow}>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.documentName}>{document.name}</Text>
+                                            <Text style={styles.documentMeta}>
+                                                {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}
+                                            </Text>
+                                        </View>
+                                        <TouchableOpacity onPress={() => removeDocument(document.id)}>
+                                            <Text style={styles.badgeRemove}>X</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <Text style={styles.helperText}>
+                                Add recommendation letters, SOPs, or other supporting documents.
+                            </Text>
+                        )}
+                    </View>
+
                     <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
                         <Text style={styles.saveButtonText}>{isEditing ? 'Update' : 'Save'} Application</Text>
                     </TouchableOpacity>
@@ -377,6 +486,46 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         gap: 8,
         marginTop: 10,
+    },
+    documentsContainer: {
+        marginBottom: 20,
+        gap: 12,
+    },
+    documentsList: {
+        gap: 10,
+    },
+    documentPickerButton: {
+        backgroundColor: '#334155',
+        padding: 14,
+        borderRadius: 10,
+        alignItems: 'center',
+    },
+    documentPickerButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+    },
+    documentRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: '#1e293b',
+        borderWidth: 1,
+        borderColor: '#334155',
+        borderRadius: 10,
+        padding: 12,
+    },
+    documentName: {
+        color: '#fff',
+        fontWeight: '600',
+    },
+    documentMeta: {
+        color: '#94a3b8',
+        fontSize: 12,
+        marginTop: 4,
+    },
+    helperText: {
+        color: '#94a3b8',
+        fontSize: 13,
     },
     badge: {
         backgroundColor: '#334155',
