@@ -37,11 +37,11 @@ npm install
 
 3. Configure Google credentials if you want Calendar integration.
 
-The Electron calendar flow reads defaults from environment variables in [electron/main.js](C:\Users\harsh\Documents\New%20project\repo_analysis\electron\main.js):
+The Electron calendar flow reads defaults from environment variables in [electron/main.js](electron/main.js):
 
 ```bash
-VITE_GOOGLE_CLIENT_ID=your_client_id
-VITE_GOOGLE_CLIENT_SECRET=your_client_secret
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
 ```
 
 You can also enter custom credentials from the app's Google Calendar connection UI. Those values are now stored by Electron in the app user-data directory rather than in browser `localStorage`.
@@ -141,7 +141,7 @@ Current active app verification completed during cleanup:
 - `npm run verify`: passes
 - `npm audit`: 0 vulnerabilities after applied fixes
 
-A GitHub Actions workflow now runs `npm run mobile:doctor` and `npm run verify` on pushes and pull requests via [ci.yml](/C:/Users/harsh/Documents/New%20project/repo_analysis/.github/workflows/ci.yml).
+A GitHub Actions workflow now runs `npm run mobile:doctor` and `npm run verify` on pushes and pull requests via [ci.yml](.github/workflows/ci.yml).
 
 ## Notes
 

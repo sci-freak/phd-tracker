@@ -80,10 +80,25 @@ test('normalizeImportedApplication validates required fields and normalizes shap
             qsRanking: '',
             requirements: ['TOEFL', 'GRE'],
             refereeEmail: '',
-            documents: [],
-            sortOrder: undefined
+            documents: []
         }
     );
+});
+
+test('normalizeImportedApplication never emits undefined sortOrder (Firestore rejects undefined)', () => {
+    const result = normalizeImportedApplication({
+        university: 'MIT',
+        program: 'CS'
+    });
+    assert.ok(result, 'expected normalized application');
+    assert.ok(!('sortOrder' in result), 'sortOrder key must be omitted, not set to undefined');
+
+    const preserved = normalizeImportedApplication({
+        university: 'MIT',
+        program: 'CS',
+        sortOrder: 7
+    });
+    assert.equal(preserved.sortOrder, 7);
 });
 
 test('createApplicationSubmission normalizes payload and applies timestamps', () => {
@@ -113,7 +128,6 @@ test('createApplicationSubmission normalizes payload and applies timestamps', ()
         requirements: ['TOEFL', 'GRE'],
         refereeEmail: '',
         documents: [],
-        sortOrder: undefined,
         createdAt: '2026-03-20T10:00:00.000Z',
         updatedAt: '2026-03-20T10:00:00.000Z',
         file: { name: 'cv.pdf' }

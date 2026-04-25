@@ -9,10 +9,11 @@ import { auth } from '../config/firebase';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_WEB_CLIENT_ID = '852501777550-7vlcc4vq4pn4ar50in5qg6879n87d0b4.apps.googleusercontent.com';
-const GOOGLE_ANDROID_CLIENT_ID = '852501777550-a8q3o4srrpb5cu7rd7hiu1a3rruta3jc.apps.googleusercontent.com';
-const GOOGLE_PROXY_REDIRECT_URI = 'https://auth.expo.io/@scifreak/mobile/oauthredirect';
-const GOOGLE_NATIVE_REDIRECT_URI = 'com.drharshsriv.phdtracker:/oauthredirect';
+const googleOauthConfig = Constants.expoConfig?.extra?.googleOauth ?? {};
+const GOOGLE_WEB_CLIENT_ID = googleOauthConfig.webClientId;
+const GOOGLE_ANDROID_CLIENT_ID = googleOauthConfig.androidClientId;
+const GOOGLE_PROXY_REDIRECT_URI = googleOauthConfig.expoProxyRedirectUri;
+const GOOGLE_NATIVE_REDIRECT_URI = googleOauthConfig.nativeRedirectUri;
 
 export default function LoginScreen() {
     const { signIn, signUp, continueAsGuest } = useAuth();

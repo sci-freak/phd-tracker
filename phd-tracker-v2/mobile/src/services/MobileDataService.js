@@ -1,9 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Linking } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { collection, onSnapshot, addDoc, deleteDoc, updateDoc, doc, setDoc, writeBatch, query } from 'firebase/firestore';
-import { deleteObject, getDownloadURL, ref, uploadBytes, uploadString } from 'firebase/storage';
+import { collection, onSnapshot, deleteDoc, updateDoc, doc, setDoc, writeBatch, query } from 'firebase/firestore';
+import { deleteObject, getDownloadURL, ref, uploadString } from 'firebase/storage';
 import {
+    applyManualSortOrder,
     createImportedApplications,
     createFirestorePayload,
     createLocalApplication,
@@ -12,7 +14,7 @@ import {
     sortApplications
 } from '@phd-tracker/shared/applications';
 import { normalizeReferee, sortReferees } from '@phd-tracker/shared/referees';
-import { db, storage } from '../config/firebase';
+import { auth, db, storage } from '../config/firebase';
 
 const GUEST_KEY = 'phd-app-guest-data';
 const GUEST_REFEREES_KEY = 'phd-referees-guest-data';
@@ -55,6 +57,31 @@ const saveGuestReferees = async (data) => {
 
 const sanitizeFileName = (name = 'document') => {
     return name.replace(/[^a-zA-Z0-9._-]/g, '-');
+};
+
+const uploadLocalFileToStorage = async (storageRef, localUri, mimeType) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        throw new Error('Cannot upload to Firebase Storage without an authenticated user.');
+    }
+
+    const token = await currentUser.getIdToken();
+    const bucket = storageRef.bucket;
+    const objectPath = storageRef.fullPath;
+    const endpoint = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(objectPath)}`;
+
+    const result = await FileSystem.uploadAsync(endpoint, localUri, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+            Authorization: `Firebase ${token}`,
+            'Content-Type': mimeType || 'application/octet-stream'
+        }
+    });
+
+    if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Firebase Storage REST upload failed with status ${result.status}: ${result.body}`);
+    }
 };
 
 const createDocumentMetadata = (document, overrides = {}) => ({
@@ -102,10 +129,15 @@ const uploadDocumentForUser = async (user, storageBasePath, document) => {
 
     try {
         if (document.uri) {
-            const response = await fetch(document.uri);
-            const blob = await response.blob();
-            await uploadBytes(storageRef, blob, { contentType: document.mimeType || 'application/octet-stream' });
+            // The Firebase JS SDK's Blob-based upload paths (`uploadBytes`,
+            // `uploadString(..., 'base64')`, etc.) all hit
+            // `new Blob([ArrayBuffer])` internally, which React Native's Blob
+            // polyfill does not support. Instead, stream the local file
+            // straight to the Firebase Storage REST API via expo-file-system.
+            await uploadLocalFileToStorage(storageRef, document.uri, document.mimeType);
         } else if (document.dataUrl) {
+            // data URLs come from legacy inline-base64 storage; uploadString
+            // handles these without triggering the Blob path.
             await uploadString(storageRef, document.dataUrl, 'data_url');
         }
 
@@ -165,6 +197,32 @@ const prepareApplicationDocuments = async (user, appId, app, previousDocuments =
     return syncCloudDocuments(user, `users/${user.uid}/applications/${appId}/documents`, documentCandidates, previousDocuments);
 };
 
+// The list view only needs document *metadata* (id, name, category, etc.) —
+// never the raw file contents. Legacy inline-base64 `dataUrl` values can be
+// hundreds of KB to multiple MB each; keeping them in the subscribed
+// `applications` state causes heavy per-render clones and native OOM crashes
+// when the FlatList re-renders (e.g. when a modal opens). Strip them here so
+// only detail/edit screens (which `getDoc` the full record separately) ever
+// load the heavy content.
+const LIST_DOCUMENT_HEAVY_FIELDS = ['dataUrl', 'content', 'file', 'uri'];
+
+const stripDocumentContentForList = (document) => {
+    if (!document || typeof document !== 'object') return document;
+    const rest = {};
+    for (const [key, value] of Object.entries(document)) {
+        if (!LIST_DOCUMENT_HEAVY_FIELDS.includes(key)) {
+            rest[key] = value;
+        }
+    }
+    return rest;
+};
+
+const stripDocumentsContentFromApp = (app) => {
+    if (!app || typeof app !== 'object') return app;
+    const documents = Array.isArray(app.documents) ? app.documents.map(stripDocumentContentForList) : app.documents;
+    return { ...app, documents };
+};
+
 const prepareRefereeDocuments = async (user, refereeId, referee, previousDocuments = []) => {
     const documentCandidates = normalizeDocuments(referee?.documents);
 
@@ -175,13 +233,101 @@ const prepareRefereeDocuments = async (user, refereeId, referee, previousDocumen
     return syncCloudDocuments(user, `users/${user.uid}/referees/${refereeId}/documents`, documentCandidates, previousDocuments);
 };
 
+// expo-sharing throws "Another share request is being processed now" if you
+// invoke `shareAsync` while a previous call hasn't resolved (e.g. user
+// double-taps a document while the first download is still in flight).
+// Track the in-flight promise so concurrent callers wait on the same work
+// instead of starting parallel downloads + share intents.
+let activeShare = null;
+
+const resolveDocumentExtension = (document) => {
+    if (document.name && document.name.includes('.')) {
+        return document.name.split('.').pop();
+    }
+    if (document.mimeType && document.mimeType.includes('/')) {
+        return document.mimeType.split('/').pop();
+    }
+    return 'bin';
+};
+
+const ensureDocumentLocalCopy = async (document) => {
+    const extension = resolveDocumentExtension(document);
+    const safeBase = sanitizeFileName(
+        document.name?.replace(/\.[^.]+$/, '') ||
+        document.id ||
+        `document-${Date.now()}`
+    );
+    const localUri = `${FileSystem.cacheDirectory}${safeBase}.${extension}`;
+
+    // Cache hit: skip the network round-trip. We treat any existing file
+    // with non-zero size as good enough; Firebase Storage URLs are immutable
+    // (their token would change if the underlying object changed), so
+    // collisions on `safeBase` won't serve stale content.
+    const info = await FileSystem.getInfoAsync(localUri).catch(() => null);
+    if (info?.exists && info.size > 0) {
+        return localUri;
+    }
+
+    const { uri } = await FileSystem.downloadAsync(document.downloadUrl, localUri);
+    return uri;
+};
+
+const shareApplicationDocument = async (document) => {
+    if (!document) return;
+    if (activeShare) return activeShare;
+
+    const run = (async () => {
+        if (document.downloadUrl) {
+            try {
+                const localUri = await ensureDocumentLocalCopy(document);
+                if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(localUri, {
+                        mimeType: document.mimeType || 'application/octet-stream',
+                        dialogTitle: document.name
+                    });
+                    return;
+                }
+                await Linking.openURL(document.downloadUrl);
+                return;
+            } catch (error) {
+                console.warn('Failed to share remote document, falling back to Linking', error);
+                await Linking.openURL(document.downloadUrl);
+                return;
+            }
+        }
+
+        if (document.dataUrl) {
+            const [, meta = 'application/octet-stream', base64 = ''] = document.dataUrl.match(/^data:(.*?);base64,(.*)$/) || [];
+            const extension = resolveDocumentExtension(document);
+            const fileUri = `${FileSystem.cacheDirectory}${document.id || Date.now()}.${extension}`;
+
+            await FileSystem.writeAsStringAsync(fileUri, base64, {
+                encoding: FileSystem.EncodingType.Base64
+            });
+
+            await Sharing.shareAsync(fileUri, {
+                mimeType: meta,
+                dialogTitle: document.name
+            });
+        }
+    })();
+
+    activeShare = run.finally(() => {
+        activeShare = null;
+    });
+
+    return activeShare;
+};
+
 export const MobileDataService = {
     subscribeToApplications: (user, onUpdate) => {
+        const deliver = (apps) => onUpdate(sortApplications(apps.map(stripDocumentsContentFromApp)));
+
         if (!user || user.isGuest) {
-            getGuestData().then((data) => onUpdate(sortApplications(data)));
+            getGuestData().then(deliver);
 
             const interval = setInterval(() => {
-                getGuestData().then((data) => onUpdate(sortApplications(data)));
+                getGuestData().then(deliver);
             }, 2000);
 
             return () => clearInterval(interval);
@@ -193,7 +339,7 @@ export const MobileDataService = {
             querySnapshot.forEach((docSnapshot) => {
                 apps.push({ ...docSnapshot.data(), id: docSnapshot.id });
             });
-            onUpdate(sortApplications(apps));
+            deliver(apps);
         });
     },
 
@@ -222,7 +368,7 @@ export const MobileDataService = {
         const normalizedApp = normalizeImportedApplication(app);
         const appPayload = normalizedApp ?? {
             ...app,
-            sortOrder: typeof app?.sortOrder === 'number' ? app.sortOrder : undefined
+            ...(typeof app?.sortOrder === 'number' ? { sortOrder: app.sortOrder } : {})
         };
 
         if (!user || user.isGuest) {
@@ -261,8 +407,14 @@ export const MobileDataService = {
             return;
         }
 
-        const { id, ...data } = updatedApp;
-        const previousDocuments = Array.isArray(updatedApp.previousDocuments) ? updatedApp.previousDocuments : [];
+        // Pull out both `id` (Firestore doc ID, not a field) and
+        // `previousDocuments` (transient metadata used only for storage
+        // cleanup) so neither leaks into the persisted payload. Leaving
+        // `previousDocuments` in the write has caused Firestore to reject the
+        // payload with "Property array contains an invalid nested entity"
+        // when the previous docs carried legacy non-POJO fields.
+        const { id, previousDocuments: previousDocumentsRaw, ...data } = updatedApp;
+        const previousDocuments = Array.isArray(previousDocumentsRaw) ? previousDocumentsRaw : [];
         const documents = hasDocumentPayload
             ? await prepareApplicationDocuments(user, id, updatedApp, previousDocuments)
             : updatedApp.documents || previousDocuments;
@@ -403,28 +555,49 @@ export const MobileDataService = {
         return normalizedApps;
     },
 
-    shareApplicationDocument: async (document) => {
-        if (!document) {
-            return;
+    reorderApplications: async (user, orderedApps) => {
+        if (!Array.isArray(orderedApps) || orderedApps.length === 0) {
+            return [];
         }
 
-        if (document.downloadUrl) {
-            return Sharing.shareAsync(document.downloadUrl);
-        }
+        const reorderedApps = applyManualSortOrder(orderedApps);
 
-        if (document.dataUrl) {
-            const [, meta = 'application/octet-stream', base64 = ''] = document.dataUrl.match(/^data:(.*?);base64,(.*)$/) || [];
-            const extension = document.name?.split('.').pop() || 'bin';
-            const fileUri = `${FileSystem.cacheDirectory}${document.id || Date.now()}.${extension}`;
-
-            await FileSystem.writeAsStringAsync(fileUri, base64, {
-                encoding: FileSystem.EncodingType.Base64
+        if (!user || user.isGuest) {
+            const existingApps = await getGuestData();
+            const orderIndex = new Map(reorderedApps.map((app, index) => [app.id, index]));
+            const merged = existingApps.map((app) => {
+                if (orderIndex.has(app.id)) {
+                    return { ...app, sortOrder: orderIndex.get(app.id) };
+                }
+                return app;
             });
-
-            return Sharing.shareAsync(fileUri, {
-                mimeType: meta,
-                dialogTitle: document.name
-            });
+            await saveGuestData(merged);
+            return reorderedApps;
         }
+
+        const batch = writeBatch(db);
+        reorderedApps.forEach(({ id, sortOrder }) => {
+            if (!id) return;
+            batch.update(doc(db, `users/${user.uid}/applications`, id), { sortOrder });
+        });
+        await batch.commit();
+        return reorderedApps;
+    },
+
+    shareApplicationDocument: shareApplicationDocument,
+
+    // Fire-and-forget pre-fetch of remote documents into the local cache so
+    // the first tap opens the share sheet without a network round-trip.
+    // Skips documents larger than `maxBytes` (default 5 MB) to avoid burning
+    // mobile data on big files the user may never open.
+    prewarmDocumentCache: async (documents = [], { maxBytes = 5 * 1024 * 1024 } = {}) => {
+        if (!Array.isArray(documents) || documents.length === 0) return;
+        const candidates = documents.filter((document) =>
+            document?.downloadUrl &&
+            (typeof document.size !== 'number' || document.size <= maxBytes)
+        );
+        await Promise.all(
+            candidates.map((document) => ensureDocumentLocalCopy(document).catch(() => undefined))
+        );
     }
 };

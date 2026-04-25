@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { View, Text, Modal, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
 
 export default function MobileConflictResolutionModal({ visible, onClose, guestApps, onResolve }) {
-    if (!visible) return null;
-
     const [resolutions, setResolutions] = useState({}); // { [appId]: 'auto' | 'manual' | 'skip' }
     const [manualNames, setManualNames] = useState({}); // { [appId]: 'New Name' }
+
+    if (!visible) return null;
 
     const handleResolutionChange = (appId, resolution) => {
         setResolutions(prev => ({ ...prev, [appId]: resolution }));

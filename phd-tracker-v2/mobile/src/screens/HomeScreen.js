@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
     View,
     Text,
-    FlatList,
     StyleSheet,
     TouchableOpacity,
     ActivityIndicator,
@@ -13,8 +12,18 @@ import {
     Image,
     ScrollView
 } from 'react-native';
+import Animated, { useAnimatedRef } from 'react-native-reanimated';
+import Sortable from 'react-native-sortables';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Swipeable } from 'react-native-gesture-handler';
+// NOTE: `react-native-gesture-handler`'s `Swipeable` used to wrap each card
+// here so users could swipe left to delete. In Expo SDK 54 / React Native
+// 0.81 with Fabric enabled, that combination hits a Yoga tree-ownership bug
+// (`assertion failed (YGNodeGetOwner(childYogaNode) == &yogaNode_)`) that
+// aborts the process as soon as the HomeScreen's tree re-lays out (e.g. when
+// the Actions modal opens). Expo SDK 54 pins RNGH to `~2.28.0`, so upgrading
+// past the fix isn't available without ejecting. We replaced swipe-to-delete
+// with long-press-to-delete (see `renderItem`) to remove Swipeable from the
+// tree entirely.
 import { compareApplicationsByDeadline, compareApplicationsByStatus, normalizeDocuments } from '@phd-tracker/shared/applications';
 import { countries } from '@phd-tracker/shared/countries';
 import { formatDeadlineDate, getBackupDateStamp } from '@phd-tracker/shared/dates';
@@ -40,6 +49,9 @@ export default function HomeScreen({ navigation }) {
     const [statusFilter, setStatusFilter] = useState('All');
     const [countryFilter, setCountryFilter] = useState(ALL_COUNTRIES_LABEL);
     const [sortOption, setSortOption] = useState('deadline');
+    // AnimatedRef for the ScrollView so Sortable.Grid can drive auto-scroll
+    // during drag when the list overflows the viewport.
+    const scrollableRef = useAnimatedRef();
     const [isFilterModalVisible, setFilterModalVisible] = useState(false);
     const [isActionsModalVisible, setActionsModalVisible] = useState(false);
     const [conflictModalVisible, setConflictModalVisible] = useState(false);
@@ -240,15 +252,33 @@ export default function HomeScreen({ navigation }) {
         }
     };
 
-    const renderRightActions = (id) => {
-        return (
-            <TouchableOpacity
-                style={styles.deleteAction}
-                onPress={() => handleDelete(id)}
-            >
-                <Text style={styles.deleteActionText}>Delete</Text>
-            </TouchableOpacity>
+    const confirmDelete = (id, universityLabel) => {
+        Alert.alert(
+            'Delete application?',
+            universityLabel ? `"${universityLabel}" will be permanently removed.` : 'This application will be permanently removed.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: () => handleDelete(id) }
+            ]
         );
+    };
+
+    const persistManualOrder = async (nextOrderedApps) => {
+        try {
+            await MobileDataService.reorderApplications(user, nextOrderedApps);
+        } catch (error) {
+            console.error('Failed to reorder applications', error);
+            Alert.alert('Error', 'Failed to save the new order');
+        }
+    };
+
+    // Drag-to-reorder is handled by Sortable.Grid below; when the user drops
+    // an item we auto-switch to manual sort (so their order is actually
+    // reflected) and persist the new sortOrder to Firestore/guest storage.
+    const handleDragEnd = ({ data }) => {
+        if (!Array.isArray(data) || data.length === 0) return;
+        setSortOption('manual');
+        persistManualOrder(data);
     };
 
     const availableCountries = useMemo(() => {
@@ -290,16 +320,25 @@ export default function HomeScreen({ navigation }) {
         const itemDocuments = normalizeDocuments(item.documents, item.file, item.files);
 
         return (
-            <Swipeable renderRightActions={() => renderRightActions(item.id)}>
+            <View key={item.id}>
                 <TouchableOpacity
                     style={styles.card}
                     onPress={() => navigation.navigate('Details', { applicationId: item.id })}
+                    onLongPress={() => confirmDelete(item.id, item.university)}
+                    delayLongPress={500}
                 >
                     <View style={styles.cardHeader}>
                         <Text style={styles.university}>{item.university}</Text>
                         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
                             <Text style={styles.statusText}>{item.status}</Text>
                         </View>
+                        {/* Drag handle: only gestures originating here trigger
+                          * reorder drag (customHandle={true} on Sortable.Grid). */}
+                        <Sortable.Handle>
+                            <View style={styles.dragHandle} hitSlop={8}>
+                                <Text style={styles.dragHandleIcon}>⋮⋮</Text>
+                            </View>
+                        </Sortable.Handle>
                     </View>
 
                     <Text style={styles.program}>{item.program}</Text>
@@ -370,7 +409,7 @@ export default function HomeScreen({ navigation }) {
                         </TouchableOpacity>
                     ) : null}
                 </TouchableOpacity>
-            </Swipeable>
+            </View>
         );
     };
 
@@ -423,17 +462,42 @@ export default function HomeScreen({ navigation }) {
                 </TouchableOpacity>
             </View>
 
-            <FlatList
-                data={filteredApplications}
-                renderItem={renderItem}
-                keyExtractor={(item) => item.id}
+            {/*
+              * NOTE: The list uses `Sortable.Grid` from `react-native-sortables`
+              * (Reanimated-based, Fabric-safe). We deliberately avoid FlatList
+              * here because its virtualization corrupts Yoga tree ownership on
+              * the Fabric architecture in Expo SDK 54 / RN 0.81, aborting the
+              * process the next time the tree re-lays out (e.g. when a Modal
+              * opens). Sortable.Grid doesn't virtualize — fine for the
+              * expected dataset size — and drives auto-scroll through the
+              * parent Animated.ScrollView via `scrollableRef`.
+              *
+              * `customHandle` means only the small grip inside each card
+              * (`<Sortable.Handle>` in `renderItem`) activates drag, so
+              * short-tap-to-navigate and long-press-to-delete keep working.
+              */}
+            <Animated.ScrollView
+                ref={scrollableRef}
                 contentContainerStyle={styles.list}
-                ListEmptyComponent={
+            >
+                {filteredApplications.length === 0 ? (
                     <Text style={styles.emptyText}>
                         {applications.length === 0 ? 'No applications found. Add some!' : 'No matches found.'}
                     </Text>
-                }
-            />
+                ) : (
+                    <Sortable.Grid
+                        columns={1}
+                        data={filteredApplications}
+                        renderItem={renderItem}
+                        keyExtractor={(item) => item.id}
+                        rowGap={16}
+                        customHandle
+                        hapticsEnabled
+                        scrollableRef={scrollableRef}
+                        onDragEnd={handleDragEnd}
+                    />
+                )}
+            </Animated.ScrollView>
 
             <TouchableOpacity
                 style={styles.fab}
@@ -442,8 +506,9 @@ export default function HomeScreen({ navigation }) {
                 <Text style={styles.fabIcon}>+</Text>
             </TouchableOpacity>
 
+            {isFilterModalVisible && (
             <Modal
-                visible={isFilterModalVisible}
+                visible
                 transparent
                 animationType="slide"
                 onRequestClose={() => setFilterModalVisible(false)}
@@ -534,9 +599,11 @@ export default function HomeScreen({ navigation }) {
                     </ScrollView>
                 </View>
             </Modal>
+            )}
 
+            {isActionsModalVisible && (
             <Modal
-                visible={isActionsModalVisible}
+                visible
                 transparent
                 animationType="fade"
                 onRequestClose={() => setActionsModalVisible(false)}
@@ -582,6 +649,7 @@ export default function HomeScreen({ navigation }) {
                     </View>
                 </View>
             </Modal>
+            )}
 
             <MobileConflictResolutionModal
                 visible={conflictModalVisible}
@@ -916,25 +984,24 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontSize: 15,
     },
-    deleteAction: {
-        backgroundColor: '#ef4444',
-        justifyContent: 'center',
-        alignItems: 'center',
-        width: 80,
-        height: '100%',
-        marginBottom: 16,
-        borderRadius: 12,
-        marginLeft: 10,
-    },
-    deleteActionText: {
-        color: '#fff',
-        fontWeight: 'bold',
-    },
     miniBadge: {
         backgroundColor: 'rgba(148, 163, 184, 0.2)',
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 4,
+    },
+    dragHandle: {
+        paddingHorizontal: 6,
+        paddingVertical: 4,
+        marginLeft: 4,
+        borderRadius: 6,
+        backgroundColor: 'rgba(148, 163, 184, 0.12)',
+    },
+    dragHandleIcon: {
+        color: '#94a3b8',
+        fontSize: 14,
+        fontWeight: '700',
+        letterSpacing: -2,
     },
     miniBadgeText: {
         color: '#cbd5e1',

@@ -232,6 +232,10 @@ export const normalizeImportedApplication = (app) => {
         refereeEmail,
         requirements,
         documents,
-        sortOrder: typeof app.sortOrder === 'number' ? app.sortOrder : undefined
+        // Firestore rejects `undefined` field values in setDoc, so only include
+        // sortOrder when it is a real number. Otherwise let the downstream
+        // writer (createFirestorePayload / withSortOrder / addApplication's
+        // fallback) assign one.
+        ...(typeof app.sortOrder === 'number' ? { sortOrder: app.sortOrder } : {})
     };
 };

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, StyleSheet, SafeAreaView, FlatList } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, StyleSheet, FlatList } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function CustomDatePicker({ visible, onClose, onSelect, initialDate }) {
-    const [currentDate, setCurrentDate] = useState(initialDate ? new Date(initialDate) : new Date());
     const [viewDate, setViewDate] = useState(initialDate ? new Date(initialDate) : new Date());
-    const [mode, setMode] = useState('calendar'); // 'calendar' or 'year'
+    const [mode, setMode] = useState('calendar'); // 'calendar' | 'month' | 'year'
 
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const weekDays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -35,34 +35,6 @@ export default function CustomDatePicker({ visible, onClose, onSelect, initialDa
         newDate.setFullYear(year);
         setViewDate(newDate);
         setMode('calendar');
-    };
-
-    const renderYears = () => {
-        const currentYear = new Date().getFullYear();
-        const years = [];
-        for (let i = currentYear - 50; i <= currentYear + 20; i++) {
-            years.push(i);
-        }
-
-        return (
-            <View style={styles.yearsGrid}>
-                {years.map(year => (
-                    <TouchableOpacity
-                        key={year}
-                        style={[
-                            styles.yearCell,
-                            year === viewDate.getFullYear() && styles.selectedYearCell
-                        ]}
-                        onPress={() => handleSelectYear(year)}
-                    >
-                        <Text style={[
-                            styles.yearText,
-                            year === viewDate.getFullYear() && styles.selectedYearText
-                        ]}>{year}</Text>
-                    </TouchableOpacity>
-                ))}
-            </View>
-        );
     };
 
     const renderCalendar = () => {

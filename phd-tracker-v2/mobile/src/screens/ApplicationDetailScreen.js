@@ -13,6 +13,9 @@ export default function ApplicationDetailScreen({ navigation, route }) {
     const { user } = useAuth();
     const [application, setApplication] = useState(null);
     const [loading, setLoading] = useState(true);
+    // Tracks which document is currently being downloaded/opened so we can
+    // show a per-row spinner and prevent duplicate share invocations.
+    const [openingDocId, setOpeningDocId] = useState(null);
 
     useEffect(() => {
         if (user?.isGuest) {
@@ -86,12 +89,25 @@ export default function ApplicationDetailScreen({ navigation, route }) {
     };
 
     const handleOpenDocument = async (document) => {
+        if (openingDocId) return;
+        setOpeningDocId(document.id);
         try {
             await MobileDataService.shareApplicationDocument(document);
-        } catch {
-            Alert.alert('Error', 'Failed to open document');
+        } catch (error) {
+            console.warn('shareApplicationDocument failed', error);
+            Alert.alert('Error', error?.message || 'Failed to open document');
+        } finally {
+            setOpeningDocId(null);
         }
     };
+
+    // Pre-warm the local file cache for small remote documents so the user's
+    // first tap opens the share sheet without an extra network round-trip.
+    useEffect(() => {
+        if (!application) return;
+        const docs = normalizeDocuments(application.documents, application.file, application.files);
+        MobileDataService.prewarmDocumentCache(docs).catch(() => undefined);
+    }, [application]);
 
     if (loading) {
         return (
@@ -172,18 +188,30 @@ export default function ApplicationDetailScreen({ navigation, route }) {
                 <View style={styles.section}>
                     <Text style={styles.label}>Documents</Text>
                     <View style={styles.documentsList}>
-                        {documents.map((document) => (
-                            <TouchableOpacity
-                                key={document.id}
-                                style={styles.documentButton}
-                                onPress={() => handleOpenDocument(document)}
-                            >
-                                <Text style={styles.documentTitle}>{document.name}</Text>
-                                <Text style={styles.documentMeta}>
-                                    {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
+                        {documents.map((document) => {
+                            const isOpening = openingDocId === document.id;
+                            const isAnotherOpening = openingDocId && !isOpening;
+                            return (
+                                <TouchableOpacity
+                                    key={document.id}
+                                    style={[styles.documentButton, isAnotherOpening && styles.documentButtonDisabled]}
+                                    onPress={() => handleOpenDocument(document)}
+                                    disabled={!!openingDocId}
+                                >
+                                    <View style={styles.documentRow}>
+                                        <View style={styles.documentTextWrap}>
+                                            <Text style={styles.documentTitle}>{document.name}</Text>
+                                            <Text style={styles.documentMeta}>
+                                                {APPLICATION_DOCUMENT_TYPES.find((option) => option.value === document.category)?.label || 'Document'}
+                                            </Text>
+                                        </View>
+                                        {isOpening ? (
+                                            <ActivityIndicator size="small" color="#3b82f6" />
+                                        ) : null}
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
                     </View>
                 </View>
             ) : null}
@@ -321,6 +349,17 @@ const styles = StyleSheet.create({
         borderColor: '#334155',
         borderRadius: 10,
         padding: 12,
+    },
+    documentButtonDisabled: {
+        opacity: 0.5,
+    },
+    documentRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    documentTextWrap: {
+        flex: 1,
     },
     documentTitle: {
         color: '#fff',

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, StyleSheet, FlatList, TextInput, SafeAreaView } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, StyleSheet, FlatList, TextInput } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { countries } from '../constants/countries';
 
 export default function CountryPicker({ visible, onClose, onSelect }) {

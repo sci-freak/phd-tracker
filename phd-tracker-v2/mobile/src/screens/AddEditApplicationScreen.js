@@ -45,49 +45,59 @@ export default function AddEditApplicationScreen({ navigation, route }) {
     const [formData, setFormData] = useState(() => createEmptyApplicationDraft());
 
     useEffect(() => {
-        if (isEditing) {
-            fetchApplication();
-        }
-    }, [applicationId]);
+        if (!isEditing) return;
 
-    const fetchApplication = async () => {
-        setLoading(true);
-        try {
-            if (user?.isGuest) {
-                const apps = await MobileDataService.fetchGuestData();
-                const app = apps.find((item) => item.id === applicationId);
+        let cancelled = false;
 
-                if (!app) {
+        const fetchApplication = async () => {
+            setLoading(true);
+            try {
+                if (user?.isGuest) {
+                    const apps = await MobileDataService.fetchGuestData();
+                    if (cancelled) return;
+                    const app = apps.find((item) => item.id === applicationId);
+
+                    if (!app) {
+                        Alert.alert('Error', 'Application not found');
+                        navigation.goBack();
+                        return;
+                    }
+
+                    setFormData(app);
+                    setRequirementsList(normalizeRequirements(app.requirements));
+                    setDocuments(normalizeDocuments(app.documents, app.file, app.files));
+                    return;
+                }
+
+                const docRef = doc(db, `users/${user.uid}/applications`, applicationId);
+                const docSnap = await getDoc(docRef);
+                if (cancelled) return;
+
+                if (!docSnap.exists()) {
                     Alert.alert('Error', 'Application not found');
                     navigation.goBack();
                     return;
                 }
 
-                setFormData(app);
-                setRequirementsList(normalizeRequirements(app.requirements));
-                setDocuments(normalizeDocuments(app.documents, app.file, app.files));
-                return;
+                const data = docSnap.data();
+                setFormData(data);
+                setRequirementsList(normalizeRequirements(data.requirements));
+                setDocuments(normalizeDocuments(data.documents, data.file, data.files));
+            } catch {
+                if (!cancelled) {
+                    Alert.alert('Error', 'Failed to fetch application details');
+                }
+            } finally {
+                if (!cancelled) setLoading(false);
             }
+        };
 
-            const docRef = doc(db, `users/${user.uid}/applications`, applicationId);
-            const docSnap = await getDoc(docRef);
+        fetchApplication();
 
-            if (!docSnap.exists()) {
-                Alert.alert('Error', 'Application not found');
-                navigation.goBack();
-                return;
-            }
-
-            const data = docSnap.data();
-            setFormData(data);
-            setRequirementsList(normalizeRequirements(data.requirements));
-            setDocuments(normalizeDocuments(data.documents, data.file, data.files));
-        } catch {
-            Alert.alert('Error', 'Failed to fetch application details');
-        } finally {
-            setLoading(false);
-        }
-    };
+        return () => {
+            cancelled = true;
+        };
+    }, [applicationId, isEditing, user, navigation]);
 
     const onDateChange = (selectedDate) => {
         if (selectedDate) {
@@ -184,8 +194,11 @@ export default function AddEditApplicationScreen({ navigation, route }) {
 
             navigation.goBack();
         } catch (error) {
-            console.error(error);
-            Alert.alert('Error', 'Failed to save application');
+            console.error('Failed to save application', error);
+            Alert.alert(
+                'Error',
+                `Failed to save application${error?.message ? `\n\n${error.message}` : ''}`
+            );
         } finally {
             setLoading(false);
         }
