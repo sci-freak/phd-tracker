@@ -14,10 +14,21 @@ const db = admin.firestore();
 const CONNECTION_COLLECTION = 'googleCalendarConnections';
 const STATE_TTL_MS = 10 * 60 * 1000;
 const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+
+// Allowlist of origins that can call the HTTP endpoints from a browser.
+// Native (React Native, Electron) clients don't send an Origin header, so they
+// bypass this check naturally. Add staging/preview domains here if needed.
+const ALLOWED_ORIGINS = new Set([
+  'https://phd-tracker-ae84e.firebaseapp.com',
+  'https://phd-tracker-ae84e.web.app',
+  'http://localhost:5173',
+  'http://localhost:4173'
+]);
+const CORS_BASE_HEADERS = {
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Max-Age': '3600',
+  'Vary': 'Origin'
 };
 
 const getOAuthClient = () => {
@@ -45,15 +56,19 @@ const requireAuth = (request) => {
   return request.auth.uid;
 };
 
-const applyCors = (res) => {
-  Object.entries(CORS_HEADERS).forEach(([header, value]) => {
+const applyCors = (req, res) => {
+  Object.entries(CORS_BASE_HEADERS).forEach(([header, value]) => {
     res.set(header, value);
   });
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+  }
 };
 
 const handleOptions = (req, res) => {
   if (req.method === 'OPTIONS') {
-    applyCors(res);
+    applyCors(req, res);
     res.status(204).send('');
     return true;
   }
@@ -186,7 +201,7 @@ exports.getGoogleCalendarAuthUrlHttp = onRequest(
     }
 
     try {
-      applyCors(res);
+      applyCors(req, res);
       const uid = await requireHttpAuth(req);
       const stateId = crypto.randomUUID();
 
@@ -278,7 +293,7 @@ exports.listGoogleCalendarEventsHttp = onRequest(
     }
 
     try {
-      applyCors(res);
+      applyCors(req, res);
       const uid = await requireHttpAuth(req);
       const connectionDoc = await getConnectionRef(uid).get();
 
@@ -369,7 +384,7 @@ exports.getGoogleCalendarConnectionStatusHttp = onRequest(async (req, res) => {
   }
 
   try {
-    applyCors(res);
+    applyCors(req, res);
     const uid = await requireHttpAuth(req);
     const connectionDoc = await getConnectionRef(uid).get();
 
