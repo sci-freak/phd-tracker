@@ -88,7 +88,7 @@ describe('ApplicationCard - display mode', () => {
     it('calls onDelete(id) when delete button is clicked', async () => {
         const user = userEvent.setup();
         const { onDelete, app } = renderCard();
-        await user.click(screen.getByTitle('Delete Application'));
+        await user.click(screen.getByRole('button', { name: /delete application/i }));
         expect(onDelete).toHaveBeenCalledWith(app.id);
     });
 

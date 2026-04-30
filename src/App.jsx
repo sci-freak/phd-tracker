@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { Inbox, SearchX } from 'lucide-react';
 import './styles/App.css';
 
 import TitleBar from './components/TitleBar';
@@ -134,19 +135,25 @@ function App() {
             <ApplicationForm onAdd={addApplication} />
 
             {isLoading ? (
-              <div className="empty-state">
-                <h2>Loading…</h2>
-                <p>Fetching your applications.</p>
+              <div className="loading-state" role="status" aria-live="polite">
+                <div className="spinner" aria-hidden="true" />
+                <p>Loading your applications…</p>
               </div>
             ) : filtered.length === 0 ? (
               <div className="empty-state">
                 {applications.length === 0 ? (
                   <>
+                    <span className="empty-state__icon" aria-hidden="true">
+                      <Inbox size={24} />
+                    </span>
                     <h2>No applications yet</h2>
                     <p>Start by adding your dream universities above.</p>
                   </>
                 ) : (
                   <>
+                    <span className="empty-state__icon" aria-hidden="true">
+                      <SearchX size={24} />
+                    </span>
                     <h2>No matches found</h2>
                     <p>Try adjusting your search or filters.</p>
                   </>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from 'sonner';
+import { Pencil, Trash2 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import NotesModal from './NotesModal';
 import { APPLICATION_STATUSES, getStatusColor } from '@phd-tracker/shared/statuses';
@@ -85,34 +86,24 @@ const ApplicationCardView = ({ app, onDelete, onStatusChange, onEdit, onEnterEdi
                         )}
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div className="card-actions">
                     <button
+                        type="button"
                         onClick={onEnterEdit}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-secondary)',
-                            fontSize: '1rem',
-                            cursor: 'pointer'
-                        }}
+                        className="card-action-btn"
+                        aria-label="Edit application"
                         title="Edit"
                     >
-                        Edit
+                        <Pencil size={16} aria-hidden="true" />
                     </button>
                     <button
+                        type="button"
                         onClick={() => onDelete(app.id)}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-secondary)',
-                            fontSize: '1.25rem',
-                            padding: '0',
-                            lineHeight: '1',
-                            cursor: 'pointer'
-                        }}
-                        title="Delete Application"
+                        className="card-action-btn card-action-btn--danger"
+                        aria-label="Delete application"
+                        title="Delete"
                     >
-                        X
+                        <Trash2 size={16} aria-hidden="true" />
                     </button>
                 </div>
             </div>
