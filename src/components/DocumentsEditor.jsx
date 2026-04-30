@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from 'sonner';
 import { APPLICATION_DOCUMENT_TYPES } from '@phd-tracker/shared/applications';
 
 const MAX_DOCUMENT_SIZE = 2 * 1024 * 1024;
@@ -24,7 +25,7 @@ const DocumentsEditor = React.forwardRef(({ value, onChange }, ref) => {
     const handleFileChange = (event) => {
         const file = event.target.files[0];
         if (file && file.size > MAX_DOCUMENT_SIZE) {
-            alert('File is too large. Please select a file under 2MB.');
+            toast.error('File is too large', { description: 'Please select a file under 2MB.' });
             return;
         }
         setSelectedFile(file);
@@ -33,7 +34,7 @@ const DocumentsEditor = React.forwardRef(({ value, onChange }, ref) => {
     const add = () => {
         const pending = createPendingDocument(selectedFile, selectedType);
         if (!pending) {
-            alert('Choose a file before adding a document.');
+            toast.error('Choose a file before adding a document.');
             return;
         }
         onChange([...docs, pending]);

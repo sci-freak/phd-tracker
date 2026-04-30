@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { REFEREE_DOCUMENT_TYPES, createEmptyRefereeDraft, sortReferees } from '@phd-tracker/shared/referees';
 import { normalizeDocuments } from '@phd-tracker/shared/applications';
 import { DataService } from '../services/DataService';
+import { useConfirm } from '../hooks/useConfirm';
 import { openDocumentWithSystemViewer } from '../utils/documentOpen';
 
 const MAX_DOCUMENT_SIZE = 2 * 1024 * 1024;
@@ -23,6 +25,7 @@ const createPendingDocument = (selectedDocumentFile, selectedDocumentType) => {
 };
 
 const RefereesModal = ({ isOpen, onClose, currentUser }) => {
+    const confirm = useConfirm();
     const [referees, setReferees] = useState([]);
     const [draft, setDraft] = useState(() => createEmptyRefereeDraft());
     const [selectedDocumentType, setSelectedDocumentType] = useState('recommendation');
@@ -54,7 +57,7 @@ const RefereesModal = ({ isOpen, onClose, currentUser }) => {
         }
 
         if (selectedFile.size > MAX_DOCUMENT_SIZE) {
-            alert('Please choose a file under 2MB.');
+            toast.error('File is too large', { description: 'Please choose a file under 2MB.' });
             return;
         }
 
@@ -64,7 +67,7 @@ const RefereesModal = ({ isOpen, onClose, currentUser }) => {
     const addDocument = () => {
         const pendingDocument = createPendingDocument(selectedDocumentFile, selectedDocumentType);
         if (!pendingDocument) {
-            alert('Choose a file before adding a letter.');
+            toast.error('Choose a file before adding a letter.');
             return;
         }
 
@@ -105,7 +108,7 @@ const RefereesModal = ({ isOpen, onClose, currentUser }) => {
 
     const handleSave = async () => {
         if (!draft.email.trim()) {
-            alert('Referee email is required.');
+            toast.error('Referee email is required');
             return;
         }
 
@@ -130,27 +133,34 @@ const RefereesModal = ({ isOpen, onClose, currentUser }) => {
             }
 
             resetDraft();
+            toast.success(editingId ? 'Referee updated' : 'Referee added');
         } catch (error) {
             console.error(error);
-            alert(`Failed to save referee.${error?.message ? `\n\n${error.message}` : ''}`);
+            toast.error('Failed to save referee', { description: error?.message });
         } finally {
             setSaving(false);
         }
     };
 
     const handleDelete = async (referee) => {
-        if (!confirm(`Delete referee ${referee.email}?`)) {
-            return;
-        }
+        const ok = await confirm({
+            title: 'Delete referee?',
+            message: `${referee.email} will be permanently removed, along with any uploaded letters.`,
+            confirmLabel: 'Delete',
+            cancelLabel: 'Cancel',
+            variant: 'danger'
+        });
+        if (!ok) return;
 
         try {
             await DataService.deleteReferee(currentUser, referee.id, normalizeDocuments(referee.documents));
             if (editingId === referee.id) {
                 resetDraft();
             }
+            toast.success('Referee deleted');
         } catch (error) {
             console.error(error);
-            alert('Failed to delete referee.');
+            toast.error('Failed to delete referee');
         }
     };
 
@@ -160,7 +170,7 @@ const RefereesModal = ({ isOpen, onClose, currentUser }) => {
             await openDocumentWithSystemViewer(document);
         } catch (error) {
             console.error(error);
-            alert('Failed to open file.');
+            toast.error('Failed to open file');
         }
     };
 

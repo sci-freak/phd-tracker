@@ -2,7 +2,17 @@ import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import ApplicationCard from './ApplicationCard';
+
+vi.mock('sonner', () => ({
+    toast: {
+        success: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warning: vi.fn()
+    }
+}));
 
 const baseApp = () => ({
     id: 'app-1',
@@ -217,17 +227,20 @@ describe('ApplicationCard - documents editor', () => {
         ]));
     });
 
-    it('rejects files larger than 2MB and alerts the user', async () => {
+    it('rejects files larger than 2MB and toasts the user', async () => {
         const user = userEvent.setup();
-        const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+        toast.error.mockClear();
         renderCard({ documents: [] });
         await user.click(screen.getByTitle('Edit'));
         const bigFile = new File([new Uint8Array(3 * 1024 * 1024)], 'big.pdf', { type: 'application/pdf' });
         await user.upload(getHiddenFileInput(), bigFile);
-        expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/too large/i));
-        // Clicking +Add Document with no file selected alerts, not appends
+        expect(toast.error).toHaveBeenCalledWith(
+            expect.stringMatching(/too large/i),
+            expect.anything()
+        );
+        // Clicking +Add Document with no file selected toasts, not appends
         await user.click(screen.getByRole('button', { name: '+ Add Document' }));
-        expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/choose a file/i));
+        expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/choose a file/i));
     });
 
     it('removes a pending document from the editor state', async () => {

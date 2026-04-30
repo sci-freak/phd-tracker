@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { toast } from 'sonner';
 
 const RichTextEditor = ({ value, onChange, placeholder, rows = 3 }) => {
     const textareaRef = useRef(null);
@@ -43,7 +44,7 @@ const RichTextEditor = ({ value, onChange, placeholder, rows = 3 }) => {
             setLinkUrl('');
             setShowLinkDialog(true);
         } else {
-            alert('Please select some text first to create a link');
+            toast.info('Select some text first to create a link');
         }
     };
 

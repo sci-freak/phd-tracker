@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from 'sonner';
 import MarkdownRenderer from './MarkdownRenderer';
 import NotesModal from './NotesModal';
 import { APPLICATION_STATUSES, getStatusColor } from '@phd-tracker/shared/statuses';
@@ -22,7 +23,7 @@ const ApplicationCardView = ({ app, onDelete, onStatusChange, onEdit, onEnterEdi
             await openDocumentWithSystemViewer(document);
         } catch (error) {
             console.error(error);
-            alert('Failed to open document.');
+            toast.error('Failed to open document');
         }
     };
 
