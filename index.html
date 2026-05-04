@@ -4,13 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>phd-tracker</title>
+    <title>PhD Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
     <script>
-      window.onerror = function(message, source, lineno, colno, error) {
-        alert('Global Error: ' + message + '\nSource: ' + source + '\nLine: ' + lineno);
+      window.onerror = function (message, source, lineno, colno, error) {
+        console.error('Global error:', { message, source, lineno, colno, error });
       };
-      window.onunhandledrejection = function(event) {
-        alert('Unhandled Rejection: ' + event.reason);
+      window.onunhandledrejection = function (event) {
+        console.error('Unhandled rejection:', event.reason);
       };
     </script>
   </head>

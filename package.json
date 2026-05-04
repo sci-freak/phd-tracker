@@ -1,7 +1,7 @@
 {
   "name": "phd-tracker",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.5.0",
   "main": "electron/main.js",
   "workspaces": [
     "packages/shared",
@@ -45,6 +45,7 @@
     "@phd-tracker/shared": "file:packages/shared",
     "firebase": "^12.7.0",
     "google-auth-library": "^10.5.0",
+    "lucide-react": "^1.14.0",
     "moment": "^2.30.1",
     "papaparse": "^5.5.3",
     "react": "19.1.0",
