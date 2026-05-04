@@ -1,11 +1,31 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
+import { X } from 'lucide-react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { APPLICATION_DOCUMENT_TYPES, normalizeDocuments } from '@phd-tracker/shared/applications';
 import MarkdownRenderer from './MarkdownRenderer';
 import { formatReadableDate, formatReadableTime } from '@phd-tracker/shared/dates';
 import { openDocumentWithSystemViewer } from '../utils/documentOpen';
 
 const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
+    const containerRef = useRef(null);
+    const isOpen = Boolean(event);
+    useFocusTrap(containerRef, isOpen);
+    useBodyScrollLock(isOpen);
+
+    useEffect(() => {
+        if (!isOpen) return undefined;
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                onClose?.();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
     if (!event) return null;
 
     const app = event.resource || {};
@@ -23,49 +43,57 @@ const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
     };
 
     return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 1000,
-            backdropFilter: 'blur(5px)'
-        }} onClick={onClose}>
-            <div style={{
-                background: 'var(--bg-card)',
-                padding: '2rem',
-                borderRadius: '1rem',
-                width: '90%',
-                maxWidth: '600px',
-                maxHeight: '90vh',
-                overflowY: 'auto',
-                border: 'var(--glass-border)',
-                boxShadow: 'var(--glass-shadow)',
-                position: 'relative'
-            }} onClick={e => e.stopPropagation()}>
-
+        <div
+            role="presentation"
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 1000,
+                backdropFilter: 'blur(5px)'
+            }}
+            onClick={onClose}
+        >
+            <div
+                ref={containerRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="app-detail-title"
+                style={{
+                    background: 'var(--bg-card)',
+                    padding: '2rem',
+                    borderRadius: '1rem',
+                    width: '90%',
+                    maxWidth: '600px',
+                    maxHeight: '90vh',
+                    overflowY: 'auto',
+                    border: 'var(--glass-border)',
+                    boxShadow: 'var(--glass-shadow)',
+                    position: 'relative'
+                }}
+                onClick={e => e.stopPropagation()}
+            >
                 <button
+                    type="button"
                     onClick={onClose}
+                    aria-label="Close"
+                    className="card-action-btn"
                     style={{
                         position: 'absolute',
                         top: '1rem',
-                        right: '1rem',
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--text-secondary)',
-                        fontSize: '1.5rem',
-                        cursor: 'pointer'
+                        right: '1rem'
                     }}
                 >
-                    X
+                    <X size={18} aria-hidden="true" />
                 </button>
 
-                <h2 style={{ marginTop: 0, color: 'var(--text-primary)', paddingRight: '2rem' }}>
+                <h2 id="app-detail-title" style={{ marginTop: 0, color: 'var(--text-primary)', paddingRight: '2rem' }}>
                     {event.title || 'No Title'}
                 </h2>
 

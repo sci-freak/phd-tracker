@@ -1,148 +1,142 @@
 # PhD Application Tracker
 
-A desktop application to track PhD applications, deadlines, notes, and supporting requirements.
+[![CI](https://github.com/sci-freak/phd-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/sci-freak/phd-tracker/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![React](https://img.shields.io/badge/React-19-149eca.svg)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-7-646cff.svg)](https://vite.dev/)
 
-## Repo Status
+A cross-platform application tracker for PhD applicants — manage universities, deadlines, requirements, referees, and supporting documents in one place. Available as a web app, Electron desktop app, and React Native mobile app, all backed by Firebase.
 
-The active desktop/web application lives in the repository root.
+> Built and used to track real-world PhD applications. Open-source under MIT.
 
-- Root app: current source of truth for the Electron + React application
-- `packages/shared`: shared domain helpers consumed by both desktop and mobile
-- `phd-tracker-v2/mobile`: React Native mobile app, now exposed as the `@phd-tracker/mobile` workspace
-- `archive/legacy-web`: archived duplicate web/desktop tree kept for reference only
+## Highlights
 
-If you are making changes to the desktop app, work in the root `src/`, `electron/`, and root config files.
+- **Three targets, one codebase.** React 19 web app, Electron desktop wrapper, and Expo mobile app share a `@phd-tracker/shared` package for domain logic.
+- **Firebase-backed sync** with Firestore + Storage + Auth. Per-user data isolation enforced by security rules.
+- **Guest mode** for use without an account. Local data merges into your account on first sign-in.
+- **Drag-and-drop reordering** with intelligent guards (disabled when filters or non-manual sort would corrupt order).
+- **Google Calendar integration** via Cloud Functions OAuth2 flow.
+- **Deadlines on a calendar** with color-coded event types and Google Calendar overlays.
+- **Document storage** with graceful fallback (Firebase Storage → inline data URL on upload failure).
+- **CSV / JSON import & export** for backups and migrations.
+- **Themes** (dark, light, midnight) with theme-aware toasts and dialogs.
+- **Accessible** modals with focus traps, body-scroll lock, ARIA roles, and keyboard navigation (Tab/Shift-Tab cycle, Escape to close).
+- **Code-split** lazy-loaded modals and views for fast initial load.
 
-## Features
+## Tech Stack
 
-- Track applications, universities, and statuses
-- View deadlines on a calendar
-- Sync with Google Calendar
-- Keep rich notes per application
-- Use guest mode or signed-in sync
-- Export and import JSON/CSV backups
+| Layer | Tech |
+|---|---|
+| Web | React 19, Vite 7, sonner, lucide-react, @dnd-kit, react-big-calendar (date-fns localizer) |
+| Desktop | Electron 39 |
+| Mobile | React Native, Expo SDK 54 |
+| Backend | Firebase (Firestore, Storage, Auth, Cloud Functions v2) |
+| Build/Test | Vite, vitest, @testing-library/react, ESLint |
+| CI | GitHub Actions (lint + tests + mobile imports + build) |
 
-## Developer Setup
+## Quick Start
 
-1. Clone the repository:
+Requires **Node 20+** and **npm 10+**.
+
 ```bash
 git clone https://github.com/sci-freak/phd-tracker.git
 cd phd-tracker
-```
-
-2. Install dependencies:
-```bash
 npm install
+npm run dev          # Vite dev server (http://localhost:5173)
 ```
 
-3. Configure Google credentials if you want Calendar integration.
-
-The Electron calendar flow reads defaults from environment variables in [electron/main.js](electron/main.js):
+For the Electron desktop app:
 
 ```bash
-GOOGLE_CLIENT_ID=your_client_id
-GOOGLE_CLIENT_SECRET=your_client_secret
+npm run electron:dev   # runs Vite + Electron concurrently
+npm run electron:build # produces release-builds/phd-tracker-win32-x64/phd-tracker.exe
 ```
 
-You can also enter custom credentials from the app's Google Calendar connection UI. Those values are now stored by Electron in the app user-data directory rather than in browser `localStorage`.
-
-4. Run the desktop app in development:
-```bash
-npm run electron:dev
-```
-
-5. Verify the active app:
-```bash
-npm run verify
-```
-
-6. Lint the active app only:
-```bash
-npm run lint
-```
-
-7. Build for production:
-```bash
-npm run build
-```
-
-8. Check dependency audit status:
-```bash
-npm run audit:check
-```
-
-9. Package the Electron app:
-```bash
-npm run electron:build
-```
-
-## Mobile App Commands
-
-The mobile app is now an explicit npm workspace and the root package exposes helper commands for it:
+For the mobile app (Expo):
 
 ```bash
 npm run mobile:install
 npm run mobile:start
-npm run mobile:android
-npm run mobile:ios
-npm run mobile:web
-npm run mobile:doctor
+npm run mobile:android   # or :ios, :web
+npm run mobile:doctor    # Expo SDK health check
 ```
-
-These commands proxy into `phd-tracker-v2/mobile` so the desktop and mobile workflows are easier to distinguish from the repository root.
-`npm run mobile:doctor` runs Expo Doctor against the mobile workspace before device testing.
-
-The workspace package name is:
-
-```bash
-@phd-tracker/mobile
-```
-
-The mobile app also supports backup import/export from the home screen via the `More` menu.
-Export uses the platform share sheet, and import accepts `.json` and `.csv` backups using the same shared parsing logic as desktop.
-Sample backup files for testing live in `public/sample-backups/`, and the runtime checklist lives in `MOBILE_BACKUP_QA.md`.
-Use `MOBILE_BACKUP_QA_REPORT_TEMPLATE.md` to capture the first device or simulator validation pass.
-The latest completed runtime result is recorded in `MOBILE_BACKUP_QA_REPORT.md`.
-
-## Project Layout
-
-- `src/`: active React application
-- `electron/`: active Electron main/preload process code
-- `packages/shared/`: shared domain logic for both desktop and mobile
-- `archive/recovery-scripts/`: historical recovery and sanitizing utilities
-- `archive/legacy-web/`: archived duplicate of the old desktop/web tree
-- `phd-tracker-v2/mobile/`: mobile app
-- `google_cloud_setup.md`: Google API setup notes
-- `BACKEND_CALENDAR_AUTH.md`: backend-assisted Google Calendar auth plan and deployment notes
-- `MOBILE_BUILD_GUIDE.md`: mobile-specific build notes
-- `MOBILE_BACKUP_QA.md`: mobile backup runtime QA checklist
-- `MOBILE_BACKUP_QA_REPORT_TEMPLATE.md`: fill-in report for mobile backup runtime validation
-- `MOBILE_BACKUP_QA_REPORT.md`: latest completed mobile backup QA result
-
-## Shared Code
-
-Cross-platform business logic should go into the shared workspace instead of being copied between apps.
-
-Current shared modules:
-
-- `@phd-tracker/shared/countries`
-- `@phd-tracker/shared/countryFlags`
-- `@phd-tracker/shared/applications`
-- `@phd-tracker/shared/dates`
-- `@phd-tracker/shared/imports`
-- `@phd-tracker/shared/statuses`
 
 ## Verification
 
-Current active app verification completed during cleanup:
+`npm run verify` runs the full pipeline locally (also enforced in CI on every PR):
 
-- `npm run lint`: passes
-- `npm run build`: passes
-- `npm run verify`: passes
-- `npm audit`: 0 vulnerabilities after applied fixes
+```bash
+npm run verify
+# → shared tests → unit tests → mobile imports check → ESLint → Vite build
+```
 
-A GitHub Actions workflow now runs `npm run mobile:doctor` and `npm run verify` on pushes and pull requests via [ci.yml](.github/workflows/ci.yml).
+Individual steps:
 
-## Notes
+```bash
+npm run test:shared    # pure-JS shared package tests
+npm run test:unit      # React component / hook tests (vitest + RTL)
+npm run lint           # ESLint
+npm run build          # production Vite build
+```
 
-The repo still contains archived recovery scripts in `archive/recovery-scripts/` and an archived legacy web tree in `archive/legacy-web/`. They are intentionally excluded from the active lint/verification path to keep maintenance focused on the current desktop application.
+## Architecture
+
+```
+phd-tracker/
+├── src/                          Web app (React 19 + Vite)
+│   ├── components/               UI components
+│   ├── hooks/                    Custom hooks (useApplications, useConfirm, ...)
+│   ├── services/DataService.js   Firestore CRUD + guest-localStorage fallback
+│   ├── context/                  Auth + Theme context providers
+│   └── styles/                   Design tokens + global CSS
+├── electron/                     Electron main + preload
+├── functions/                    Firebase Cloud Functions (Calendar OAuth)
+├── packages/shared/              Cross-platform domain logic + tests
+├── phd-tracker-v2/mobile/        React Native / Expo app
+└── .github/workflows/ci.yml      GitHub Actions
+```
+
+### Key design choices
+
+- **Workspace-based monorepo.** `@phd-tracker/shared` is consumed by web, mobile, and Cloud Functions for normalization, validation, and domain comparators — so the rules don't drift between platforms.
+- **Per-user data isolation** enforced via Firestore + Storage security rules at `users/{uid}/**`.
+- **OAuth secrets** for Google Calendar live in Firebase Functions secrets (`defineSecret`), never in source.
+- **Composable hooks** in `src/hooks/`: `useApplications`, `useImportExport`, `useGuestMerge`, `useGlobalShortcut`, `useFilteredApplications`, `useConfirm`, `useFocusTrap`, `useBodyScrollLock`. `App.jsx` is a thin orchestrator (~210 lines).
+
+## Google Calendar Setup
+
+Optional. To enable Calendar integration:
+
+1. Create OAuth 2.0 credentials in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (Web Application type).
+2. Add your Firebase Hosting domain and `http://localhost:5173` as authorized origins.
+3. Set the Cloud Functions secrets:
+   ```bash
+   firebase functions:secrets:set GOOGLE_CALENDAR_CLIENT_ID
+   firebase functions:secrets:set GOOGLE_CALENDAR_CLIENT_SECRET
+   firebase functions:secrets:set GOOGLE_CALENDAR_REDIRECT_URI
+   ```
+4. Deploy: `npm run functions:deploy`.
+
+For Electron, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` env vars (see [`electron/main.js`](electron/main.js)) or enter them in the Calendar connection UI.
+
+Detailed setup notes in [`google_cloud_setup.md`](google_cloud_setup.md) and [`BACKEND_CALENDAR_AUTH.md`](BACKEND_CALENDAR_AUTH.md).
+
+## Releases
+
+| Version | Highlights |
+|---|---|
+| v2.6.0 | Tests, a11y, code splitting, design tokens polish, dropped moment for date-fns |
+| v2.5.0 | Design system overhaul (icons, design tokens, Inter font, themed toasts) |
+| v2.4.0 | Notification system (sonner), accessible confirm dialog, App.jsx refactored into hooks/components |
+| v2.3.1 | Theme bug fix, DnD guards, CORS allowlist, hardened localStorage parsing |
+
+See [CHANGELOG.md](CHANGELOG.md) for full history.
+
+## Privacy & Terms
+
+- [Privacy Policy](PRIVACY_POLICY.md)
+- [Terms of Service](TERMS_OF_SERVICE.md)
+
+## License
+
+[MIT](LICENSE) © Harsh Srivastava

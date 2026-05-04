@@ -1,7 +1,7 @@
 {
   "name": "phd-tracker",
   "private": true,
-  "version": "2.5.0",
+  "version": "2.6.0",
   "main": "electron/main.js",
   "workspaces": [
     "packages/shared",
@@ -43,10 +43,10 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@phd-tracker/shared": "file:packages/shared",
+    "date-fns": "^4.1.0",
     "firebase": "^12.7.0",
     "google-auth-library": "^10.5.0",
     "lucide-react": "^1.14.0",
-    "moment": "^2.30.1",
     "papaparse": "^5.5.3",
     "react": "19.1.0",
     "react-big-calendar": "^1.19.4",
