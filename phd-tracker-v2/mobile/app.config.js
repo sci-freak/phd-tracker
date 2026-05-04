@@ -48,6 +48,7 @@ module.exports = () => ({
         web: {
             favicon: './assets/favicon.png'
         },
+        plugins: ['expo-web-browser'],
         owner: expoOwner,
         extra: {
             eas: {

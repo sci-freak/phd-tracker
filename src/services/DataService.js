@@ -16,19 +16,33 @@ const GUEST_KEY = 'phd-app-guest-data';
 const GUEST_REFEREES_KEY = 'phd-referees-guest-data';
 const LEGACY_KEY = 'phd-applications';
 
+const safeParseArray = (raw, storageKey) => {
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        console.warn(`Corrupt localStorage entry "${storageKey}", resetting.`, error);
+        try {
+            localStorage.removeItem(storageKey);
+        } catch {
+            // localStorage may be unavailable (private mode, quota errors)
+        }
+        return [];
+    }
+};
+
 const getGuestData = () => {
-    const data = localStorage.getItem(GUEST_KEY) || localStorage.getItem(LEGACY_KEY);
-    return data ? JSON.parse(data) : [];
+    const primary = localStorage.getItem(GUEST_KEY);
+    if (primary) return safeParseArray(primary, GUEST_KEY);
+    return safeParseArray(localStorage.getItem(LEGACY_KEY), LEGACY_KEY);
 };
 
 const saveGuestData = (data) => {
     localStorage.setItem(GUEST_KEY, JSON.stringify(data));
 };
 
-const getGuestReferees = () => {
-    const data = localStorage.getItem(GUEST_REFEREES_KEY);
-    return data ? JSON.parse(data) : [];
-};
+const getGuestReferees = () => safeParseArray(localStorage.getItem(GUEST_REFEREES_KEY), GUEST_REFEREES_KEY);
 
 const saveGuestReferees = (data) => {
     localStorage.setItem(GUEST_REFEREES_KEY, JSON.stringify(data));

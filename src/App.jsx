@@ -10,7 +10,6 @@ import ConflictResolutionModal from './components/ConflictResolutionModal'
 
 import Papa from 'papaparse';
 
-import { ThemeProvider } from './context/ThemeContext';
 import { useAuth } from './context/AuthContext';
 import { DataService } from './services/DataService';
 import { compareApplicationsByDeadline, compareApplicationsByStatus } from '@phd-tracker/shared/applications';
@@ -295,6 +294,14 @@ function App() {
 
   const uniqueCountries = ['All', ...new Set(applications.map(app => app.country).filter(Boolean))];
 
+  // Drag-to-reorder writes a positional sortOrder against the full applications
+  // list. When a filter or non-manual sort is active, the visible subset's
+  // indices don't match the master list — reordering would corrupt sortOrder.
+  // Disable DnD in that case and surface a hint to the user.
+  const isFiltering = searchTerm.trim() !== '' || statusFilter !== 'All' || countryFilter !== 'All';
+  const isManualSort = sortOption === 'manual';
+  const dragEnabled = !isFiltering && isManualSort;
+
   const stats = applications.reduce((acc, app) => {
     acc[app.status] = (acc[app.status] || 0) + 1;
     return acc;
@@ -305,7 +312,7 @@ function App() {
   }
 
   return (
-    <ThemeProvider>
+    <>
       <TitleBar />
       <div className="app-container">
         <datalist id="country-list">
@@ -479,29 +486,43 @@ function App() {
               </div>
             ) : (
               <div className="grid-container">
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={filteredApplications.map(app => app.id)}
-                    strategy={rectSortingStrategy}
+                {dragEnabled ? (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
                   >
-                    {filteredApplications.map(app => (
-                      <SortableItem key={app.id} id={app.id}>
-                        <ApplicationCard
-                          app={app}
-                          onDelete={deleteApplication}
-                          onStatusChange={updateStatus}
-                          onEdit={editApplication}
-                          startEditing={app.id === editingAppId}
-                          onEditEnd={() => setEditingAppId(null)}
-                        />
-                      </SortableItem>
-                    ))}
-                  </SortableContext>
-                </DndContext>
+                    <SortableContext
+                      items={filteredApplications.map(app => app.id)}
+                      strategy={rectSortingStrategy}
+                    >
+                      {filteredApplications.map(app => (
+                        <SortableItem key={app.id} id={app.id}>
+                          <ApplicationCard
+                            app={app}
+                            onDelete={deleteApplication}
+                            onStatusChange={updateStatus}
+                            onEdit={editApplication}
+                            startEditing={app.id === editingAppId}
+                            onEditEnd={() => setEditingAppId(null)}
+                          />
+                        </SortableItem>
+                      ))}
+                    </SortableContext>
+                  </DndContext>
+                ) : (
+                  filteredApplications.map(app => (
+                    <ApplicationCard
+                      key={app.id}
+                      app={app}
+                      onDelete={deleteApplication}
+                      onStatusChange={updateStatus}
+                      onEdit={editApplication}
+                      startEditing={app.id === editingAppId}
+                      onEditEnd={() => setEditingAppId(null)}
+                    />
+                  ))
+                )}
               </div>
             )}
           </>
@@ -551,7 +572,7 @@ function App() {
         guestApps={guestDataToMerge}
         onResolve={handleMergeResolution}
       />
-    </ThemeProvider>
+    </>
   )
 }
 
