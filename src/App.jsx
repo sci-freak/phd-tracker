@@ -1,34 +1,45 @@
-import { useState, useEffect } from 'react'
-import './styles/App.css'
-import ApplicationCard from './components/ApplicationCard'
-import ApplicationForm from './components/ApplicationForm'
-import TitleBar from './components/TitleBar'
-import CalendarView from './components/CalendarView'
-import ApplicationDetailModal from './components/ApplicationDetailModal'
-import Login from './components/Login'
-import ConflictResolutionModal from './components/ConflictResolutionModal'
+import { useCallback, useState } from 'react';
+import './styles/App.css';
 
-import Papa from 'papaparse';
-
-import { useAuth } from './context/AuthContext';
-import { DataService } from './services/DataService';
-import { compareApplicationsByDeadline, compareApplicationsByStatus } from '@phd-tracker/shared/applications';
-import { getBackupDateStamp } from '@phd-tracker/shared/dates';
-import { mapImportedCsvRow, parseImportedJson } from '@phd-tracker/shared/imports';
-import { APP_REPOSITORY_URL } from '@phd-tracker/shared/links';
-import { STATUS_FILTER_OPTIONS } from '@phd-tracker/shared/statuses';
-
-import { countries } from './constants/countries';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
-import SortableItem from './components/SortableItem';
+import TitleBar from './components/TitleBar';
+import Login from './components/Login';
+import AppHeader from './components/AppHeader';
+import FilterBar from './components/FilterBar';
+import ApplicationsGrid from './components/ApplicationsGrid';
+import ApplicationForm from './components/ApplicationForm';
+import CalendarView from './components/CalendarView';
+import ApplicationDetailModal from './components/ApplicationDetailModal';
+import ConflictResolutionModal from './components/ConflictResolutionModal';
 import SearchModal from './components/SearchModal';
 import SettingsModal from './components/SettingsModal';
 import RefereesModal from './components/RefereesModal';
 
+import { useAuth } from './context/AuthContext';
+import { useConfirm } from './hooks/useConfirm';
+import { useApplications } from './hooks/useApplications';
+import { useImportExport } from './hooks/useImportExport';
+import { useGuestMerge } from './hooks/useGuestMerge';
+import { useGlobalShortcut } from './hooks/useGlobalShortcut';
+import { useFilteredApplications } from './hooks/useFilteredApplications';
+
+import { countries } from './constants/countries';
+
 function App() {
   const { currentUser, signOut } = useAuth();
-  const [applications, setApplications] = useState([]);
+  const confirm = useConfirm();
+
+  const {
+    applications,
+    isLoading,
+    addApplication,
+    deleteApplication,
+    updateStatus,
+    editApplication,
+    reorder
+  } = useApplications(currentUser);
+
+  const { exportData, importData } = useImportExport({ currentUser, applications, confirm });
+  const guestMerge = useGuestMerge({ currentUser, confirm });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -43,63 +54,27 @@ function App() {
   const [isRefereesOpen, setIsRefereesOpen] = useState(false);
   const [shortcut, setShortcut] = useState(() => localStorage.getItem('searchShortcut') || 'Ctrl+K');
 
-  const [conflictModalOpen, setConflictModalOpen] = useState(false);
-  const [guestDataToMerge, setGuestDataToMerge] = useState([]);
+  const openSearch = useCallback(() => setIsSearchOpen(true), []);
+  useGlobalShortcut({ shortcut, onShortcut: openSearch, onSignOut: signOut });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  const { filtered, uniqueCountries, stats, dragEnabled } = useFilteredApplications({
+    applications,
+    searchTerm,
+    statusFilter,
+    countryFilter,
+    sortOption,
+    sortDirection
+  });
 
-  useEffect(() => {
-    if (!currentUser) {
-      setApplications([]);
-      return;
-    }
-
-    if (!currentUser.isGuest) {
-      const guestData = DataService.fetchGuestData();
-      if (guestData.length > 0) {
-        setGuestDataToMerge(guestData);
-        setConflictModalOpen(true);
-      }
-    }
-
-    const unsubscribe = DataService.subscribeToApplications(currentUser, (apps) => {
-      setApplications(apps);
-    });
-
-    return () => unsubscribe && unsubscribe();
-  }, [currentUser]);
-
-  const handleMergeResolution = async (resolvedApps) => {
-    try {
-      if (resolvedApps.length > 0) {
-        await DataService.batchAdd(currentUser, resolvedApps);
-      }
-      DataService.clearGuestData();
-      setConflictModalOpen(false);
-      setGuestDataToMerge([]);
-      alert('Sync complete!');
-    } catch (e) {
-      console.error('Merge failed', e);
-      alert('Failed to merge data. Please try again.');
-    }
-  };
-
-  const handleMergeDiscard = () => {
-    if (confirm('Keep local guest data separate? You can access it again by logging out and continuing as Guest.')) {
-      setConflictModalOpen(false);
-      setGuestDataToMerge([]);
-    }
-  };
+  const handleReorder = useCallback((activeId, overId) => {
+    reorder(activeId, overId);
+    setSortOption('manual');
+  }, [reorder]);
 
   const calendarEvents = applications
-    .filter(app => app.deadline)
-    .map(app => {
-      const hasTime = app.deadline && app.deadline.includes('T');
+    .filter((app) => app.deadline)
+    .map((app) => {
+      const hasTime = app.deadline.includes('T');
       return {
         id: app.id,
         title: `${app.university} - ${app.program}`,
@@ -111,202 +86,6 @@ function App() {
       };
     });
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const keys = shortcut.split('+');
-      const mainKey = keys[keys.length - 1]?.toLowerCase();
-      const hasCtrl = keys.includes('Ctrl');
-      const hasCmd = keys.includes('Cmd');
-      const hasAlt = keys.includes('Alt');
-      const hasShift = keys.includes('Shift');
-
-      const eventKey = e.key?.toLowerCase();
-      const eventCtrl = e.ctrlKey;
-      const eventMeta = e.metaKey;
-      const eventAlt = e.altKey;
-      const eventShift = e.shiftKey;
-
-      const modifiersMatch =
-        (hasCtrl === eventCtrl) &&
-        (hasCmd === eventMeta) &&
-        (hasAlt === eventAlt) &&
-        (hasShift === eventShift);
-
-      if (modifiersMatch && eventKey === mainKey) {
-        e.preventDefault();
-        setIsSearchOpen(true);
-      }
-
-      if (e.ctrlKey && e.shiftKey && e.key?.toLowerCase() === 'l') {
-        e.preventDefault();
-        signOut();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shortcut, signOut]);
-
-  const handleDragEnd = (event) => {
-    const { active, over } = event;
-
-    if (!over || active.id === over.id) {
-      return;
-    }
-
-    const currentItems = [...applications];
-    const oldIndex = currentItems.findIndex((item) => item.id === active.id);
-    const newIndex = currentItems.findIndex((item) => item.id === over.id);
-
-    if (oldIndex === -1 || newIndex === -1) {
-      return;
-    }
-
-    const reorderedItems = arrayMove(currentItems, oldIndex, newIndex).map((item, index) => ({
-      ...item,
-      sortOrder: index
-    }));
-
-    setApplications(reorderedItems);
-    setSortOption('manual');
-
-    DataService.reorderApplications(currentUser, reorderedItems).catch((error) => {
-      console.error('Error saving manual order: ', error);
-      alert('Failed to save manual order');
-    });
-  };
-
-  const addApplication = async (app) => {
-    try {
-      await DataService.addApplication(currentUser, {
-        ...app,
-        sortOrder: applications.length
-      });
-    } catch (e) {
-      console.error('Error adding document: ', e);
-      alert('Failed to save application');
-    }
-  };
-
-  const deleteApplication = async (id) => {
-    try {
-      const appToDelete = applications.find((app) => app.id === id);
-      await DataService.deleteApplication(currentUser, id, appToDelete?.documents || []);
-    } catch (e) {
-      console.error('Error deleting document: ', e);
-    }
-  };
-
-  const updateStatus = async (id, newStatus) => {
-    try {
-      await DataService.updateStatus(currentUser, id, newStatus);
-    } catch (e) {
-      console.error('Error updating status: ', e);
-    }
-  };
-
-  const editApplication = async (updatedApp) => {
-    try {
-      await DataService.updateApplication(currentUser, updatedApp);
-    } catch (e) {
-      console.error('Error updating application: ', e);
-    }
-  };
-
-  const exportData = () => {
-    const dataStr = JSON.stringify(applications, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `phd-applications-${getBackupDateStamp()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const importData = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const content = event.target.result;
-      let importedApps = [];
-
-      if (file.name.endsWith('.json')) {
-        try {
-          importedApps = parseImportedJson(content);
-        } catch {
-          alert('Invalid JSON file');
-          return;
-        }
-      } else if (file.name.endsWith('.csv')) {
-        Papa.parse(content, {
-          header: true,
-          complete: (results) => {
-            importedApps = results.data.map(mapImportedCsvRow).filter(Boolean);
-            processImports(importedApps);
-          }
-        });
-        return;
-      }
-
-      if (importedApps.length > 0) processImports(importedApps);
-    };
-    reader.readAsText(file);
-  };
-
-  const processImports = async (apps) => {
-    const destination = currentUser?.isGuest ? 'local guest storage' : 'your cloud account';
-    if (!confirm(`Import ${apps.length} applications? This will add them to ${destination}.`)) return;
-
-    try {
-      await DataService.importApplications(currentUser, apps);
-      alert('Import successful!');
-    } catch (e) {
-      console.error('Import failed', e);
-      alert('Import failed');
-    }
-  };
-
-  const filteredApplications = applications.filter(app => {
-    if (!app) return false;
-    const term = (searchTerm || '').toLowerCase();
-    const u = app.university?.toLowerCase() || '';
-    const p = app.program?.toLowerCase() || '';
-
-    const matchesSearch = u.includes(term) || p.includes(term);
-    const matchesStatus = statusFilter === 'All' || app.status === statusFilter;
-    const matchesCountry = countryFilter === 'All' || app.country === countryFilter;
-    return matchesSearch && matchesStatus && matchesCountry;
-  }).sort((a, b) => {
-    if (sortOption === 'deadline') {
-      return compareApplicationsByDeadline(a, b, sortDirection);
-    }
-    if (sortOption === 'status') {
-      return compareApplicationsByStatus(a, b, sortDirection);
-    }
-    const orderA = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-    const orderB = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-    return orderA - orderB;
-  });
-
-  const uniqueCountries = ['All', ...new Set(applications.map(app => app.country).filter(Boolean))];
-
-  // Drag-to-reorder writes a positional sortOrder against the full applications
-  // list. When a filter or non-manual sort is active, the visible subset's
-  // indices don't match the master list — reordering would corrupt sortOrder.
-  // Disable DnD in that case and surface a hint to the user.
-  const isFiltering = searchTerm.trim() !== '' || statusFilter !== 'All' || countryFilter !== 'All';
-  const isManualSort = sortOption === 'manual';
-  const dragEnabled = !isFiltering && isManualSort;
-
-  const stats = applications.reduce((acc, app) => {
-    acc[app.status] = (acc[app.status] || 0) + 1;
-    return acc;
-  }, {});
-
   if (!currentUser) {
     return <Login />;
   }
@@ -316,161 +95,50 @@ function App() {
       <TitleBar />
       <div className="app-container">
         <datalist id="country-list">
-          {countries.map(country => (
+          {countries.map((country) => (
             <option key={country} value={country} />
           ))}
         </datalist>
-        <div className="header" style={{ textAlign: 'center' }}>
-          <h1>PhD Application Tracker</h1>
-          <p>Manage your journey to the doctorate.</p>
 
-          <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
-            {currentUser && !currentUser.isGuest && (
-              <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginRight: '0.5rem' }}>
-                Signed in as <strong>{currentUser.email}</strong>
-              </span>
-            )}
-            <button onClick={() => setIsSettingsOpen(true)} className="btn-action">
-              Settings
-            </button>
-            <button
-              onClick={() => window.open(APP_REPOSITORY_URL, '_blank', 'noopener,noreferrer')}
-              className="btn-action"
-            >
-              GitHub Repo
-            </button>
-            <button onClick={exportData} className="btn-action">
-              Export Backup
-            </button>
-            <label className="btn-action">
-              Import Data
-              <input
-                type="file"
-                accept=".json,.csv"
-                onChange={importData}
-                style={{ display: 'none' }}
-              />
-            </label>
-            <button onClick={() => setIsRefereesOpen(true)} className="btn-action">
-              Referees
-            </button>
-            <button
-              onClick={signOut}
-              className="btn-action"
-              style={{ borderColor: '#ef4444', color: '#ef4444' }}
-            >
-              Sign Out
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '1rem' }}>
-            <button
-              onClick={() => setView('list')}
-              className="btn-action"
-              style={{
-                background: view === 'list' ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-                color: view === 'list' ? '#fff' : 'var(--text-secondary)'
-              }}
-            >
-              List View
-            </button>
-            <button
-              onClick={() => setView('calendar')}
-              className="btn-action"
-              style={{
-                background: view === 'calendar' ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-                color: view === 'calendar' ? '#fff' : 'var(--text-secondary)'
-              }}
-            >
-              Calendar
-            </button>
-          </div>
-        </div>
+        <AppHeader
+          currentUser={currentUser}
+          view={view}
+          onViewChange={setView}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenReferees={() => setIsRefereesOpen(true)}
+          onExport={exportData}
+          onImport={importData}
+          onSignOut={signOut}
+        />
 
         {view === 'calendar' ? (
-          <CalendarView
-            events={calendarEvents}
-            onSelectEvent={setSelectedEvent}
-          />
+          <CalendarView events={calendarEvents} onSelectEvent={setSelectedEvent} />
         ) : (
           <>
-            <div style={{
-              display: 'flex',
-              gap: '1rem',
-              marginBottom: '2rem',
-              flexWrap: 'wrap',
-              background: 'var(--bg-card)',
-              padding: '1rem',
-              borderRadius: '1rem',
-              border: 'var(--glass-border)',
-              backdropFilter: 'var(--backdrop-blur)'
-            }}>
-              <div style={{ flex: 1, minWidth: '200px' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.5rem' }}>
-                  Total Applications: {applications.length}
-                </span>
-                <div style={{ display: 'flex', gap: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                  <span>Submitted: <strong style={{ color: 'var(--text-primary)' }}>{stats['Submitted'] || 0}</strong></span>
-                  <span>Accepted: <strong style={{ color: 'var(--accent-success)' }}>{stats['Accepted'] || 0}</strong></span>
-                  <span>Rejected: <strong style={{ color: 'var(--accent-danger)' }}>{stats['Rejected'] || 0}</strong></span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '250px', flexWrap: 'wrap' }}>
-                <input
-                  type="text"
-                  placeholder="Search university or program..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  style={{ width: '150px' }}
-                >
-                  {STATUS_FILTER_OPTIONS.map(status => (
-                    <option key={status} value={status}>
-                      {status === 'All' ? 'All Statuses' : status}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={countryFilter}
-                  onChange={(e) => setCountryFilter(e.target.value)}
-                  style={{ width: '150px' }}
-                >
-                  {uniqueCountries.map(country => (
-                    <option key={country} value={country}>
-                      {country === 'All' ? 'All Countries' : country}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={sortOption}
-                  onChange={(e) => setSortOption(e.target.value)}
-                  style={{ width: '170px' }}
-                >
-                  <option value="manual">Manual Sort</option>
-                  <option value="deadline">Sort by Deadline</option>
-                  <option value="status">Sort by Status</option>
-                </select>
-                {sortOption !== 'manual' && (
-                  <button
-                    onClick={() => setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
-                    className="btn-action"
-                    style={{ padding: '0.5rem', minWidth: '40px', justifyContent: 'center' }}
-                    title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
-                  >
-                    {sortDirection === 'asc' ? 'Up' : 'Down'}
-                  </button>
-                )}
-              </div>
-            </div>
+            <FilterBar
+              totalApplications={applications.length}
+              stats={stats}
+              searchTerm={searchTerm}
+              onSearchChange={setSearchTerm}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              countryFilter={countryFilter}
+              onCountryFilterChange={setCountryFilter}
+              uniqueCountries={uniqueCountries}
+              sortOption={sortOption}
+              onSortOptionChange={setSortOption}
+              sortDirection={sortDirection}
+              onToggleSortDirection={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+            />
 
             <ApplicationForm onAdd={addApplication} />
 
-            {filteredApplications.length === 0 ? (
+            {isLoading ? (
+              <div className="empty-state">
+                <h2>Loading…</h2>
+                <p>Fetching your applications.</p>
+              </div>
+            ) : filtered.length === 0 ? (
               <div className="empty-state">
                 {applications.length === 0 ? (
                   <>
@@ -485,45 +153,16 @@ function App() {
                 )}
               </div>
             ) : (
-              <div className="grid-container">
-                {dragEnabled ? (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd}
-                  >
-                    <SortableContext
-                      items={filteredApplications.map(app => app.id)}
-                      strategy={rectSortingStrategy}
-                    >
-                      {filteredApplications.map(app => (
-                        <SortableItem key={app.id} id={app.id}>
-                          <ApplicationCard
-                            app={app}
-                            onDelete={deleteApplication}
-                            onStatusChange={updateStatus}
-                            onEdit={editApplication}
-                            startEditing={app.id === editingAppId}
-                            onEditEnd={() => setEditingAppId(null)}
-                          />
-                        </SortableItem>
-                      ))}
-                    </SortableContext>
-                  </DndContext>
-                ) : (
-                  filteredApplications.map(app => (
-                    <ApplicationCard
-                      key={app.id}
-                      app={app}
-                      onDelete={deleteApplication}
-                      onStatusChange={updateStatus}
-                      onEdit={editApplication}
-                      startEditing={app.id === editingAppId}
-                      onEditEnd={() => setEditingAppId(null)}
-                    />
-                  ))
-                )}
-              </div>
+              <ApplicationsGrid
+                applications={filtered}
+                dragEnabled={dragEnabled}
+                onReorder={handleReorder}
+                editingAppId={editingAppId}
+                onDelete={deleteApplication}
+                onStatusChange={updateStatus}
+                onEdit={editApplication}
+                onEditEnd={() => setEditingAppId(null)}
+              />
             )}
           </>
         )}
@@ -539,6 +178,7 @@ function App() {
           />
         )}
       </div>
+
       <SearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
@@ -567,13 +207,13 @@ function App() {
         currentUser={currentUser}
       />
       <ConflictResolutionModal
-        isOpen={conflictModalOpen}
-        onClose={handleMergeDiscard}
-        guestApps={guestDataToMerge}
-        onResolve={handleMergeResolution}
+        isOpen={guestMerge.conflictModalOpen}
+        onClose={guestMerge.discard}
+        guestApps={guestMerge.guestDataToMerge}
+        onResolve={guestMerge.resolve}
       />
     </>
-  )
+  );
 }
 
-export default App
+export default App;

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast } from 'sonner';
 import {
     APPLICATION_DOCUMENT_TYPES,
     createApplicationSubmission,
@@ -62,7 +63,7 @@ const ApplicationForm = ({ onAdd }) => {
     const handleFileChange = (event) => {
         const selectedFile = event.target.files[0];
         if (selectedFile && selectedFile.size > MAX_DOCUMENT_SIZE) {
-            alert('File is too large. Please select a file under 2MB.');
+            toast.error('File is too large', { description: 'Please select a file under 2MB.' });
             return;
         }
         setSelectedDocumentFile(selectedFile);
@@ -71,7 +72,7 @@ const ApplicationForm = ({ onAdd }) => {
     const addDocument = () => {
         const pendingDocument = createPendingDocument(selectedDocumentFile, selectedDocumentType);
         if (!pendingDocument) {
-            alert('Choose a file before adding a document.');
+            toast.error('Choose a file before adding a document.');
             return;
         }
 
@@ -100,7 +101,7 @@ const ApplicationForm = ({ onAdd }) => {
         );
 
         if (!submission) {
-            alert('University and Program are required.');
+            toast.error('University and Program are required');
             return;
         }
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from 'sonner';
 import { APPLICATION_DOCUMENT_TYPES, normalizeDocuments } from '@phd-tracker/shared/applications';
 import MarkdownRenderer from './MarkdownRenderer';
 import { formatReadableDate, formatReadableTime } from '@phd-tracker/shared/dates';
@@ -17,7 +18,7 @@ const ApplicationDetailModal = ({ event, onClose, onEdit }) => {
             await openDocumentWithSystemViewer(document);
         } catch (error) {
             console.error(error);
-            alert('Failed to open document.');
+            toast.error('Failed to open document');
         }
     };
 
