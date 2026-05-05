@@ -23,7 +23,7 @@ module.exports = () => ({
     expo: {
         name: 'PhD Tracker',
         slug: 'mobile',
-        version: '2.3.0',
+        version: '2.6.0',
         orientation: 'portrait',
         scheme: ['phdtracker', nativeRedirectScheme],
         icon: './assets/icon.png',
