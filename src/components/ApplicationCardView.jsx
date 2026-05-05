@@ -77,6 +77,9 @@ const ApplicationCardView = ({ app, onDelete, onStatusChange, onEdit, onEnterEdi
                                         src={`https://flagcdn.com/w20/${countryCode}.png`}
                                         srcSet={`https://flagcdn.com/w40/${countryCode}.png 2x`}
                                         width="20"
+                                        height="15"
+                                        loading="lazy"
+                                        decoding="async"
                                         alt={app.country}
                                         style={{ borderRadius: '2px' }}
                                     />

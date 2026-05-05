@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import { Inbox, SearchX } from 'lucide-react';
 import './styles/App.css';
 
@@ -8,12 +8,14 @@ import AppHeader from './components/AppHeader';
 import FilterBar from './components/FilterBar';
 import ApplicationsGrid from './components/ApplicationsGrid';
 import ApplicationForm from './components/ApplicationForm';
-import CalendarView from './components/CalendarView';
-import ApplicationDetailModal from './components/ApplicationDetailModal';
-import ConflictResolutionModal from './components/ConflictResolutionModal';
-import SearchModal from './components/SearchModal';
-import SettingsModal from './components/SettingsModal';
-import RefereesModal from './components/RefereesModal';
+
+// Lazy-loaded — only fetched when the user opens these views/modals.
+const CalendarView = lazy(() => import('./components/CalendarView'));
+const ApplicationDetailModal = lazy(() => import('./components/ApplicationDetailModal'));
+const ConflictResolutionModal = lazy(() => import('./components/ConflictResolutionModal'));
+const SearchModal = lazy(() => import('./components/SearchModal'));
+const SettingsModal = lazy(() => import('./components/SettingsModal'));
+const RefereesModal = lazy(() => import('./components/RefereesModal'));
 
 import { useAuth } from './context/AuthContext';
 import { useConfirm } from './hooks/useConfirm';
@@ -113,7 +115,9 @@ function App() {
         />
 
         {view === 'calendar' ? (
-          <CalendarView events={calendarEvents} onSelectEvent={setSelectedEvent} />
+          <Suspense fallback={<div className="loading-state" role="status"><div className="spinner" aria-hidden="true" /><p>Loading calendar…</p></div>}>
+            <CalendarView events={calendarEvents} onSelectEvent={setSelectedEvent} />
+          </Suspense>
         ) : (
           <>
             <FilterBar
@@ -175,50 +179,68 @@ function App() {
         )}
 
         {selectedEvent && (
-          <ApplicationDetailModal
-            event={selectedEvent}
-            onClose={() => setSelectedEvent(null)}
-            onEdit={(app) => {
-              setEditingAppId(app.id);
-              setView('list');
-            }}
-          />
+          <Suspense fallback={null}>
+            <ApplicationDetailModal
+              event={selectedEvent}
+              onClose={() => setSelectedEvent(null)}
+              onEdit={(app) => {
+                setEditingAppId(app.id);
+                setView('list');
+              }}
+            />
+          </Suspense>
         )}
       </div>
 
-      <SearchModal
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        applications={applications}
-        onSelect={(app) => {
-          setEditingAppId(app.id);
-          setView('list');
-          setTimeout(() => {
-            const el = document.getElementById(`app-card-${app.id}`);
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }, 100);
-        }}
-      />
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        currentShortcut={shortcut}
-        onSaveShortcut={(newShortcut) => {
-          setShortcut(newShortcut);
-          localStorage.setItem('searchShortcut', newShortcut);
-        }}
-      />
-      <RefereesModal
-        isOpen={isRefereesOpen}
-        onClose={() => setIsRefereesOpen(false)}
-        currentUser={currentUser}
-      />
-      <ConflictResolutionModal
-        isOpen={guestMerge.conflictModalOpen}
-        onClose={guestMerge.discard}
-        guestApps={guestMerge.guestDataToMerge}
-        onResolve={guestMerge.resolve}
-      />
+      {isSearchOpen && (
+        <Suspense fallback={null}>
+          <SearchModal
+            isOpen={isSearchOpen}
+            onClose={() => setIsSearchOpen(false)}
+            applications={applications}
+            onSelect={(app) => {
+              setEditingAppId(app.id);
+              setView('list');
+              setTimeout(() => {
+                const el = document.getElementById(`app-card-${app.id}`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 100);
+            }}
+          />
+        </Suspense>
+      )}
+      {isSettingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            currentShortcut={shortcut}
+            onSaveShortcut={(newShortcut) => {
+              setShortcut(newShortcut);
+              localStorage.setItem('searchShortcut', newShortcut);
+            }}
+          />
+        </Suspense>
+      )}
+      {isRefereesOpen && (
+        <Suspense fallback={null}>
+          <RefereesModal
+            isOpen={isRefereesOpen}
+            onClose={() => setIsRefereesOpen(false)}
+            currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+      {guestMerge.conflictModalOpen && (
+        <Suspense fallback={null}>
+          <ConflictResolutionModal
+            isOpen={guestMerge.conflictModalOpen}
+            onClose={guestMerge.discard}
+            guestApps={guestMerge.guestDataToMerge}
+            onResolve={guestMerge.resolve}
+          />
+        </Suspense>
+      )}
     </>
   );
 }
