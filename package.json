@@ -1,7 +1,7 @@
 {
   "name": "phd-tracker",
   "private": true,
-  "version": "2.6.0",
+  "version": "2.6.1",
   "main": "electron/main.js",
   "workspaces": [
     "packages/shared",
@@ -33,6 +33,8 @@
     "mobile:doctor": "npm exec --workspace @phd-tracker/mobile expo-doctor",
     "mobile:android:devclient": "npm exec --workspace @phd-tracker/mobile -- eas-cli build --platform android --profile development",
     "mobile:android:preview": "npm exec --workspace @phd-tracker/mobile -- eas-cli build --platform android --profile preview",
+    "mobile:android:production": "npm exec --workspace @phd-tracker/mobile -- eas-cli build --platform android --profile production",
+    "mobile:android:submit": "npm exec --workspace @phd-tracker/mobile -- eas-cli submit --platform android --profile production --latest",
     "mobile:android:local": "npm exec --workspace @phd-tracker/mobile -- expo run:android",
     "preview": "vite preview",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
